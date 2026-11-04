@@ -7,7 +7,6 @@ description: Diagnose VoLum Windows/macOS native build, package, artifact, and C
 
 ## First Checks
 
-- Read the failing command and platform from logs before changing code.
 - Check branch/ref when artifact contents look wrong; CI manual dispatch can use a selected ref.
 - Confirm submodules are initialized and at committed pointers.
 
@@ -28,7 +27,6 @@ from step status with `pwsh NeuralAmpModeler/scripts/ci-watch.ps1 -RunId <id>
 
 ## Windows
 
-- If postbuild copy/link fails, close stale `VoLum.exe` and rerun.
 - Inno Setup is required for installer builds.
 
 ## macOS

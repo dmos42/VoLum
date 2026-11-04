@@ -7,6 +7,7 @@ Keep this file as a small routing index. Detailed guidance lives in scoped Curso
 - Main product code: `NeuralAmpModeler/`.
 - Vendored/submodule code: `iPlug2/`, `NeuralAmpModelerCore/`, `eigen/`. Avoid edits unless the task explicitly targets them.
 - `AudioDSPTools/` is a submodule, but VoLum actively depends on DSP there.
+- `iPlug2/` may be dirty from the Windows ASIO patch; never reset, commit, or merge that dirt unless asked.
 - Top-level `rigs/` is the dev source of bundled amp profiles. Shipped artifacts rename it to `VoLumRigs/`.
 
 ## Start Here
@@ -24,15 +25,13 @@ Rules below auto-attach on the files they own; you do not need to open them by h
 - Retraining bundled NAM captures to A2: skill `a2-training` (ops in `training/cloud/`).
 - Writing or trimming rules/skills/`AGENTS.md`: `.cursor/rules/ai-artifact-authoring.mdc`.
 - Wayfinder maps / scratch tickets: `.cursor/rules/volum-scratch-planning.mdc`.
-- Goal+verify loops: `/conductor` for AFK, overnight, spec overnight, or dispatching a clear map. Ordinary one-slice features and bugs: Plan mode or implement (`vo-lum-workflow`). Foggy headlines: `/wayfinder`. Skip all three for one-step edits. pstack skills (`/arena`, `/swarm`, `/interrogate`, `/poteto-mode`) are allowed and may drive a `/loop`; set their models with `/setup-pstack`.
+- Choosing `/wayfinder`, Plan mode, or `/conductor`: `measure-twice-cut-once.mdc`. pstack skills (`/arena`, `/swarm`, `/interrogate`, `/poteto-mode`) are allowed and may drive a `/loop`; set their models with `/setup-pstack`.
 
 ## Agent skills
 
 ### Issue tracker
 
-Planning lives in `.scratch/`. Foggy multi-session: `/wayfinder`. Sitting-with-you
-implementation: Plan / implement. AFK / overnight: `/conductor`. See
-`docs/agents/issue-tracker.md`.
+Planning lives in `.scratch/`. See `docs/agents/issue-tracker.md`.
 
 ### Domain docs
 
@@ -45,8 +44,6 @@ Single-context. `CONTEXT.md` is a lazy glossary, not a spec. See
 - macOS tests: `bash NeuralAmpModeler/scripts/run-tests-mac.sh`
 - macOS sanitizer tests: `bash NeuralAmpModeler/scripts/run-tests-mac.sh --sanitize`
 - Windows app smoke check: `pwsh NeuralAmpModeler/scripts/run-app-win.ps1` (sandbox library; `-RealLibrary` for the owner's)
-- Worktrees: `pwsh NeuralAmpModeler/scripts/worktree-win.ps1 -Add <branch>` / `-Remove <path> [-DeleteBranch]`
-- Merge a CI-green branch into dev: `pwsh NeuralAmpModeler/scripts/merge-verified-branch.ps1 -Branch <branch> [-DryRun]`
 - Windows screenshot / click harness: `pwsh NeuralAmpModeler/scripts/win-screenshot.ps1`, `win-click.ps1`, `win-key.ps1` (recipes in `docs/screenshot-recipes.md`; debug-only `VOLUM_SEED_CUSTOM_AMPS=N` for sidebar overflow)
 - Windows portable package: `cd NeuralAmpModeler\scripts; cmd /c makedist-win.bat full zip` (the script resolves its helpers relative to the working directory, so it must run from `scripts`)
 - Windows installer package: `cd NeuralAmpModeler\scripts; cmd /c makedist-win.bat full installer`

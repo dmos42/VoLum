@@ -64,8 +64,6 @@ Do not inline `$`, `$(...)`, or `$?` in an ssh command from PowerShell — they
 expand on the laptop. `\$` does not save you. Scp a script, `sed -i 's/\r$//'`
 it, then run it. `$ProgressPreference='SilentlyContinue'` for pip/conda.
 
-Git remotes on this machine: explicit HTTPS (`.cursor/rules/git-remote-https.mdc`).
-
 ## Last full run
 
 RunPod 2026-06-06/07: 249 captures, round-2 best-of-2 on ~30. Merged set was

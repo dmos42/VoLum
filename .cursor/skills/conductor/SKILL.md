@@ -133,8 +133,5 @@ Then stop. Tell the user to run `/captain-hindsight` and implement only script/t
 ## Do not
 
 - Open `/wayfinder` because implementation is hard. If new fog appears, stop and say so.
-- Open `/conductor` for a one-slice live bugfix the user is watching. That is Plan + `vo-lum-workflow`.
 - Fold UAT grilling + coding + reviews into one marathon with no tickets and no `loop.md`.
 - Spawn a worker per micro-step, or let the writer’s chat be the only review.
-- Implement 13 headlines in this chat. That is dispatch, or 13 spec overnights — not spec overnight with a long list.
-- Declare the map clear while `Not yet specified` still has contents (that is wayfinder, before this skill).

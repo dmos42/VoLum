@@ -9,8 +9,6 @@ description: Prepare VoLum PRs and GitHub releases. Use when creating release PR
 
 1. Check branch and dirt first:
    - `git status --short --branch`
-   - Keep unrelated local dirt, especially `iPlug2`, out of commits.
-   - Follow the branch flow in `vo-lum-workflow.mdc` "Branching"; promote `dev` -> `main` only as part of a release.
 2. Identify workflow type:
    - PR to `main`: inspect full `origin/main...HEAD` diff, not only latest commit.
    - Draft release: inspect actual release assets with `gh release view`.
@@ -19,8 +17,10 @@ description: Prepare VoLum PRs and GitHub releases. Use when creating release PR
    - Confirm `config.h`, `installer/VoLum.iss`, and `resources/*.plist` agree.
    - If mismatched, use existing version scripts instead of hand editing when possible.
 4. User-facing text:
-   - Preserve README images/badges unless user explicitly asks to change them.
-   - Release notes should mention concrete asset names and install path choices.
+   - Release notes cover only user-facing changes since the previous published
+     release: no manual test plans, internal RC-only bugs, or fixes for behavior
+     that never shipped publicly.
+   - Mention concrete asset names and install path choices when they affect what users download or install.
    - **Keep release notes short, and scale them to the release.** A single
      bugfix gets a few sentences: what is fixed, who is affected, what did not
      change. No engineering narrative, no test-strategy or process sections, no

@@ -21,13 +21,7 @@ Branch/workflow facts:
   `release/**` or `dev`/`main` after a push — that duplicates the ~93 minute matrix.
   Manual runs build the selected ref unless checkout is overridden.
 - `Release Native` is main-only: it checks out `main`, bumps metadata, tags, then builds from that tag.
-- Regular CI now runs Windows/macOS doctests, macOS sanitizer doctests, NAMCore regression tests, Windows installer smoke verification, package layout checks, and VST3 validation through pluginval plus the Steinberg validator when available.
-
-Branch policy:
-
-- Canonical branch flow (`main`/`dev`/`feature`, post-release `main`->`dev` merge) lives in `vo-lum-workflow.mdc` "Branching". Promote `dev`->`main` only as part of a release; the `release-manager` skill drives the PR.
-- Keep unrelated local dirt (especially `iPlug2` ASIO patch dirt) out of any release merge.
-- Packaging CI fixes should run on a fix branch first. Merge to `dev` only after branch CI is green, unless the user explicitly asks to iterate directly on `dev`.
+- Regular CI runs Windows/macOS doctests, macOS sanitizer doctests, NAMCore regression tests, Windows installer smoke verification, package layout checks, and VST3 validation through pluginval plus the Steinberg validator when available.
 
 Packaging layout:
 
@@ -55,9 +49,6 @@ Version metadata:
 - Keep `config.h`, `installer/VoLum.iss`, and `resources/*.plist` versions consistent.
 - macOS plist filenames keep `NeuralAmpModeler-*` even though product name is `VoLum`.
 
-Release notes:
+README:
 
-- Inspect actual assets with `gh release view` before writing notes.
-- Describe only user-facing changes since the previous published release. Do not include manual test plans, internal RC-only bugs, or fixes for behavior that never shipped publicly.
-- Mention concrete asset names and install path choices when they affect what users download or install.
 - Do not remove README screenshots or CI badges unless explicitly asked.

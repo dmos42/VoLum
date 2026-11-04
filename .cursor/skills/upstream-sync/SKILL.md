@@ -18,9 +18,9 @@ VoLum is independent, but stays close enough to two upstream sources that fixes 
 ## NeuralAmpModelerPlugin
 
 - The upstream plugin shell remote is `upstream` at `https://github.com/sdatkinson/NeuralAmpModelerPlugin.git` (push disabled).
-- Inspect with `git fetch upstream main`, then `git log --oneline VoLum-last-upstream-merge..upstream/main -- NeuralAmpModeler`.
+- The last reviewed upstream commit is the newest `Upstream review baseline: ... @ <sha>` in `NeuralAmpModeler/installer/changelog.txt` (there is no git tag). Inspect with `git fetch upstream main`, then `git log --oneline <sha>..upstream/main -- NeuralAmpModeler`.
 - Cherry-pick or merge selectively into a `chore/upstream-sync-YYYY-MM-DD` branch. Never blanket-merge upstream.
-- Tag the merge point in `NeuralAmpModeler/installer/changelog.txt` so the next sync knows where to start.
+- End the sync's changelog line with a new `Upstream review baseline: NAM Player main @ <sha>` so the next sync knows where to start.
 
 ## File Boundaries
 

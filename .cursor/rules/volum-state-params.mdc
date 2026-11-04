@@ -17,7 +17,7 @@ Parameter rules:
 - `EParams` order is serialization-sensitive.
 - New params need stable `GetName()` strings.
 - Do not reorder params or rename stable names without updating migration code.
-- Keep `test_eparam_order.cpp` and `test_keyboard_steps.cpp` in sync with param changes.
+- Keep `test_eparam_order.cpp` and `test_keyboard_steps.cpp` in sync with param changes: pin every new param's index and step size.
 - PRE NAM capture params (`PreNam1Capture`, `PreNam2Capture`) use `0` as EMPTY and are bounded by the PRE capture list / param range; update `test_volum_pre_pedal_captures.cpp` and `test_volum_chunk_codec.cpp` when that behavior changes.
 
 Preset/session migration:
@@ -107,13 +107,8 @@ DAW-chunk persistence coverage (do NOT rely on pluginval):
 - `kNumParams` lives in `VoLumParams.h` (dependency-free, included by
   `NeuralAmpModeler.h`) so tests measure against the real enum, never a copy.
 
-Verification (run the Windows tests, `AGENTS.md` "Fast Commands"):
+Verification:
 
-- New parameter: pin index and step size in `test_eparam_order.cpp` and
-  `test_keyboard_steps.cpp`.
-- New serialization path: version branch in `test_volum_chunk_version.cpp` plus
-  round-trip/bounds coverage in `test_volum_chunk_codec.cpp`.
-- User settings JSON: `test_volum_user_settings_io.cpp`.
 - Old DAW sessions must still load, and old param names must stay readable
   through migration.
 - If a fix would change user-facing display wording or symbols (for example

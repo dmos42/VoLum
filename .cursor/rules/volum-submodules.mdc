@@ -11,12 +11,6 @@ alwaysApply: false
 
 # VoLum Submodules
 
-Boundaries:
-
-- Treat `iPlug2/`, `NeuralAmpModelerCore/`, and `eigen/` as vendored unless the task explicitly targets them.
-- `AudioDSPTools/` is also a submodule, but VoLum may require DSP changes there.
-- Expected local dirt: `iPlug2` can be dirty from the Windows ASIO patch. Do not reset or commit it unless asked.
-
 When changing submodules:
 
 - Verify the desired commit exists on the remote branch/fork CI can fetch.
@@ -27,9 +21,4 @@ When changing submodules:
   2. Push the fork branch that the submodule tracks (usually `guitarlum/volum/asio-channel-routing`; use explicit HTTPS on this machine).
   3. Fetch the pushed fork branch so the local tracking ref is current.
   4. Commit the parent repo's `iPlug2` submodule pointer update with the VoLum-side tests/docs/changelog.
-
-Before commits:
-
-- Run `git status --short --branch`.
-- Do not include unrelated submodule dirt.
-- Prefer explicit path staging over `git add .`.
+- Stage explicit paths, never `git add .`.

@@ -5,21 +5,14 @@ alwaysApply: true
 
 # VoLum workflow (vibe coding + safety nets)
 
-## Mindset
-
-- Ship **small vertical slices**: one behavior, one bugfix, or one refactor path per pass—**working build + tests** before the next idea.
-- Spikes are fine; **delete or fold** dead spike code before you call the iteration done.
-
 ## Every meaningful iteration (before you stop or hand off)
 
 A wayfinder or scratch-planning session that does not change product code,
 tests, or user-facing docs skips this loop.
 
-1. **Run tests** when C++/NAM/plugin logic changed:
-   - `NeuralAmpModeler/scripts/run-tests-win.ps1` (Release x64), or the equivalent CI command you are using.
-   - macOS parity: `NeuralAmpModeler/scripts/run-tests-mac.sh`; sanitizer parity: `NeuralAmpModeler/scripts/run-tests-mac.sh --sanitize`.
+1. **Run tests** when C++/NAM/plugin logic changed: `NeuralAmpModeler/scripts/run-tests-win.ps1` (Release x64); macOS and sanitizer parity commands are in `AGENTS.md` "Fast Commands".
 2. **Build and launch the standalone app** when VoLum **UI** changed (layout, controls, styling) so you can judge the result:
-   - `NeuralAmpModeler/scripts/run-app-win.ps1` (Release x64). It opens a sandbox library; `-RealLibrary` only when the owner asks. Close a running VoLum if postbuild cannot copy the exe.
+   - `NeuralAmpModeler/scripts/run-app-win.ps1` (Release x64). It opens a sandbox library; `-RealLibrary` only when the owner asks.
 3. **Append a changelog line** so you can bisect and remember intent:
    - Prefer `NeuralAmpModeler/installer/changelog.txt` (keep project style: date + short note).
    - One line per user-visible or behavior change; include breaking preset/state format bumps.
@@ -34,21 +27,21 @@ tests, or user-facing docs skips this loop.
 - **Verify each regression test fails with the fix reverted**, doctests and
   scripted end-to-end scenarios alike. One that passes against the broken code
   is worse than none: it reports coverage that does not exist.
-- If a bug was caused by a missing test, add the test that would have caught it.
 - The rule attached to the code you are editing names the test files that own it.
 
 ## Code hygiene is part of the task
 
 - **Refactor proactively** when a file crosses ~500 lines or a class accumulates unrelated responsibilities. Don't wait to be asked.
 - New controls go in the owner file for that surface, never into a monolith or an umbrella header.
+- Spikes are fine; **delete or fold** dead spike code before you call the iteration done.
 
 ## Execution
 
 - **You run** builds/tests in this environment; do not only tell the user what to run.
 - After failures: diagnose, fix, retry—do not stop after one error.
 - Rebuild the standalone with `run-app-win.ps1` (it stops `VoLum` and `VoLum_x64`). If the linker reports a locked VST3, close the host DAW.
-- Worktrees: only through `NeuralAmpModeler/scripts/worktree-win.ps1 -Add <branch>` / `-Remove <path>`. Plain `git worktree remove --force` follows junctions and empties their targets (it emptied the main checkout on 2026-09-23).
-- Merge a verified branch into `dev` with `NeuralAmpModeler/scripts/merge-verified-branch.ps1 -Branch <branch>`; it refuses without green CI on the branch head.
+- Worktrees: only through `NeuralAmpModeler/scripts/worktree-win.ps1 -Add <branch>` / `-Remove <path> [-DeleteBranch]`. Plain `git worktree remove --force` follows junctions and empties their targets (it emptied the main checkout on 2026-09-23).
+- Merge a verified branch into `dev` with `NeuralAmpModeler/scripts/merge-verified-branch.ps1 -Branch <branch> [-DryRun]`; it refuses without green CI on the branch head.
 - Shell is **Windows PowerShell 5.x**: chain commands with `;` plus `if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }`. Do not use `&&` / `||` — PowerShell 5.x rejects them as invalid statement separators.
 - Never `>` / `*>` into a file that git, clang-format or another native tool will read: Windows PowerShell writes UTF-16. Use `git diff --output=<file>`, `Out-File -Encoding utf8`, or `[IO.File]::WriteAllText`. A UTF-16 patch once applied as empty and silently dropped a fix.
 - Multi-line `git commit` messages: write the message to a temp file, then
@@ -57,7 +50,6 @@ tests, or user-facing docs skips this loop.
 
 ## Scope discipline
 
-- Touch only files needed for the request.
 - Do not add product specs, README essays, or ADRs by default. An ADR is allowed
   only when all three hold: hard to reverse, surprising without context, and the
   result of a real trade-off. Product specs live in `.scratch/<effort>/` and are
