@@ -183,6 +183,16 @@ set_target_properties(volum-vst3 PROPERTIES
   LINK_FLAGS "-Wl,-rpath,$ORIGIN"
 )
 
+# Deux noms pour le module, parce que les hôtes ne cherchent pas pareil. Steinberg demande
+# que le module porte le nom du paquet (VoLum.vst3.so), mais un hôte JUCE (Carla, Qtractor,
+# et leurs dérivés) reconstruit le chemin « Contents/<arch>/<paquet sans .vst3>.so » et ne
+# trouve que VoLum.so. Sans ce lien, Carla répond « No plugins found » alors que le paquet
+# est valide. Le lien est relatif, donc le paquet reste déplacable.
+add_custom_command(TARGET volum-vst3 POST_BUILD
+  COMMAND "${CMAKE_COMMAND}" -E create_symlink "VoLum.vst3.so" "VoLum.so"
+  WORKING_DIRECTORY "$<TARGET_FILE_DIR:volum-vst3>"
+  COMMENT "lien VoLum.so pour les hôtes de famille JUCE")
+
 target_include_directories(volum-vst3 PRIVATE
   "${PROJECT_DIR}"
   "${PROJECT_DIR}/third_party/signalsmith"

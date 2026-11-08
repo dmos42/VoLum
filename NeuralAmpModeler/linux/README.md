@@ -107,6 +107,24 @@ cmake --install build/linux          # -> ~/.vst3/VoLum.vst3
 That path is `$HOME/.vst3` on purpose: it is the per-user VST3 folder every Linux host
 scans (`VOLUM_INSTALL_DIR` overrides it, e.g. `-DVOLUM_INSTALL_DIR=/usr/local/lib/vst3`).
 
+### Two names for the module
+
+The install puts one real file and one relative link next to it:
+
+    VoLum.vst3/Contents/x86_64-linux/VoLum.vst3.so   Steinberg rule: module named after the bundle
+    VoLum.vst3/Contents/x86_64-linux/VoLum.so        -> VoLum.vst3.so, the name JUCE hosts rebuild
+
+[Steinberg's format description](https://steinbergmedia.github.io/vst3_dev_portal/pages/Technical+Documentation/Locations+Format/Plugin+Format.html)
+says the shared object and the bundle must have the same name, which is what upstream does on
+Windows and macOS. JUCE rebuilds the path itself, as
+`Contents/$(uname -m)-linux/<bundle name without .vst3>.so` (`getDLLFileFromBundle` in
+`juce_VST3PluginFormat.cpp`), so a bundle carrying only the Steinberg name never reaches
+`dlopen` in that family of hosts: Carla 2.5.10 printed `No plugins found` and
+`JUCE Assertion failure in juce_VST3PluginFormat.cpp:999` for exactly this reason, and listed
+`VoLum`, 2 in / 2 out, 1 MIDI in and 233 parameters as soon as the link existed. Hosts that
+instead glob `*.so` in the architecture folder can show VoLum twice; delete `VoLum.so` if that
+bothers you.
+
 * **Bitwig Studio** — Options → Audio and MIDI → VST3: make sure `~/.vst3` is in the plug-in
   path list, then rescan.
 * **Reaper** — Options → Preferences → Plug-ins → VST: add `~/.vst3` to the VST3 path list.
@@ -119,6 +137,11 @@ folder to the app (per user, reversible):
 flatpak override --user --filesystem=~/.vst3 studio.kx.carla
 flatpak override --user --reset studio.kx.carla     # undo
 ```
+
+Granting the folder is necessary but not sufficient for a sandboxed host: the Flatpak runtime
+carries an older glibc than a Fedora 44 build demands, so that Carla still refuses the module.
+See [issue #7](https://github.com/dmos42/VoLum/issues/7) and the portability note in
+[Limitations](#limitations); the packaged (native) Carla loads it normally.
 
 ## The probe harness
 
