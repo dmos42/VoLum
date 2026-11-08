@@ -128,6 +128,24 @@ jobs:
           test -s /tmp/ci-out.wav
         shell: bash
 
+      - name: Run the standalone host
+        # volum-app is the same engine as volum-live behind a window, so the interesting
+        # thing to test is the part that is only in the standalone: it is launched with no
+        # module argument and has to find build/linux/VoLum.vst3 from /proc/self/exe, the
+        # way it will on a machine where VoLum was installed and not built. The window is
+        # left open (Xvfb) because closing it is the way out of the program, and the run is
+        # driven by a file so the runner still needs no audio device. The output is then
+        # compared byte for byte with what volum-live made of the same file two steps up:
+        # one engine, two hosts.
+        run: |
+          test -x ./build/linux/volum-app || { echo "volum-app absent : alsa-lib n'a pas ete trouve au configure"; exit 1; }
+          xvfb-run -a -s "-screen 0 1440x900x24" \
+            ./build/linux/volum-app \
+            --in-file /tmp/ci-tone.wav --out-file /tmp/ci-app.wav --meter 0
+          test -s /tmp/ci-app.wav
+          cmp /tmp/ci-out.wav /tmp/ci-app.wav
+        shell: bash
+
       - name: Upload the bundle
         uses: actions/upload-artifact@v4
         with:

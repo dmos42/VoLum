@@ -10,12 +10,13 @@ X11 + GLX.
 [![Linux VST3](https://github.com/dmos42/VoLum/actions/workflows/linux-vst3.yml/badge.svg?branch=volum%2Flinux-port)](https://github.com/dmos42/VoLum/actions/workflows/linux-vst3.yml?query=branch%3Avolum%2Flinux-port)
 
 Status of the port: the audio path, the VST3 wrapper, the editor window, mouse/keyboard
-input, in-app menus and text entry, clipboard, cursors and fonts all work. The file / folder
-/ colour dialogs, the native message box and the standalone application are still missing —
-see [Limitations](#limitations). Two command-line hosts are built alongside the plug-in: a
-probe that answers "does the module load and make sound?", and
-[`volum-live`](#running-volum-without-a-daw), which plays the plug-in straight against ALSA
-with its own window, no DAW in the way.
+input, in-app menus and text entry, clipboard, cursors and fonts all work, and so does the
+standalone: [`volum-app`](#the-standalone-application) is VoLum in a window of its own with no
+DAW in the way. The file / folder / colour dialogs and the native message box are still
+missing — see [Limitations](#limitations). Three command-line hosts are built alongside the
+plug-in: a probe that answers "does the module load and make sound?",
+[`volum-live`](#running-volum-without-a-daw), which plays the plug-in straight against ALSA,
+and `volum-app`, which is that same engine behind a window and nothing else to type.
 
 The work happens on `volum/linux-port`, which is that repository's default branch:
 [`dmos42/VoLum`](https://github.com/dmos42/VoLum). [Issue #8](https://github.com/dmos42/VoLum/issues/8)
@@ -53,7 +54,7 @@ sudo dnf install @development-tools cmake ninja-build clang \
 | `xcb-util-{image,wm,cursor}-devel`, `libXcursor-devel` | cursor loading and the Xfixes/Xrender headers those pull in |
 | `libglvnd-devel`, `mesa-libGL-devel` | GLX + OpenGL 2 for NanoVG (`IGRAPHICS_GL2`) |
 | `freetype-devel` | font loading through NanoVG |
-| `alsa-lib-devel` | needed by `volum-live`, the host that opens the capture and playback streams itself; the plug-in never touches a device |
+| `alsa-lib-devel` | needed by `volum-live` and `volum-app`, the hosts that open the capture and playback streams themselves; the plug-in never touches a device |
 | `xorg-x11-server-Xvfb` | headless X server, only for the probe harness and CI |
 
 Debian/Ubuntu names, for anyone who ports the CI later — not verified on a Debian box:
@@ -97,11 +98,12 @@ build/linux/VoLum.vst3/
 └── Contents/Resources/{fonts,img,VoLumRigs}
 ```
 
-Two command-line hosts are built next to it, both directly in `build/linux/`:
-`volum-vst3-probe`, described under [the probe harness](#the-probe-harness), and
-`volum-live`, described under [running VoLum without a DAW](#running-volum-without-a-daw).
-The live host is the only target that needs ALSA; when its headers are missing the build
-prints a warning and simply leaves it out.
+Three command-line hosts are built next to it, all directly in `build/linux/`:
+`volum-vst3-probe`, described under [the probe harness](#the-probe-harness), and `volum-live`
+plus `volum-app`, described under [running VoLum without a DAW](#running-volum-without-a-daw).
+The last two are the only targets that need ALSA; when its headers are missing the build
+prints a warning and leaves them out. `VOLUM_BUILD_PROBE`, `VOLUM_BUILD_LIVE` and
+`VOLUM_BUILD_APP` are the switches, all ON.
 
 `-DVOLUM_COPY_RIGS=OFF` skips the 249 bundled `.nam` rigs (the bundle drops from ~83 MB to a
 few MB); the plug-in then looks for rigs in the paths listed under [Files VoLum
@@ -256,6 +258,38 @@ thread and only pumps window events between blocks: redraws do not stall the str
 the run stops when the window closes. `--no-ui` leaves the window unopened, for a rack
 started from a script.
 
+### The standalone application
+
+`volum-app` is the Linux counterpart of the `VoLum.exe` / `VoLum.app` upstream ships: run it
+and the amp appears in a window, with no host to configure first. A DAW is told which plug-in
+to load and which device to use; this program has to decide both for itself, so those are the
+only two things it adds over `volum-live`:
+
+* **which bundle to run** — looked for next to the executable first (`/proc/self/exe`, so the
+  build tree and a folder you copied both work), then `~/.vst3`, `$XDG_DATA_HOME/vst3`, and the
+  VST3 folders under `/usr`. `./build/linux/volum-app` therefore runs with no install step,
+  and `cmake --install build/linux` is enough for a system-wide one. When nothing is found the
+  program prints every folder it searched instead of "cannot open file".
+* **which device, at which period** — `~/.config/VoLum/app.conf`, the same `key=value` keys as
+  `live.conf` (`out=`, `in=`, `period=`, `periods=`, `gain=`, `param=`), so the choice is made
+  once and kept. `--help` lists them all.
+
+The block loop, the ALSA negotiation, the editor window and the shutdown order are literally
+`volum-live`'s files — `runHost()` in `live-runner.cpp` — which is the reason both hosts can be
+claimed to behave the same: run the same WAV through each and the two output files are
+identical byte for byte (the same `sha256 424729f4…` as the pre-split binary). Levels are not
+printed by default (`--meter N` still asks for them), and closing the window is the way out.
+
+```bash
+./build/linux/volum-app                 # window, default device, settings from app.conf
+./build/linux/volum-app --check         # what it would open, without opening it
+./build/linux/volum-app --list          # device names to put in app.conf
+```
+
+What it deliberately is not: a DAW. One stereo pair in and out, no timeline, no routing, no
+MIDI in the host yet ([issue #6](https://github.com/dmos42/VoLum/issues/6)). There is also no
+`.desktop` entry, icon or installer yet — that is step 6 of [issue #8](https://github.com/dmos42/VoLum/issues/8).
+
 ## The probe harness
 
 `volum-vst3-probe` is a headless host: `dlopen` the module, run the factory, instantiate,
@@ -310,9 +344,10 @@ through `volum-live` in its card-free file mode, and uploads the bundle as an ar
 | `~/.vst3/VoLum.vst3/Contents/Resources/VoLumRigs/` | the bundled rig collection, copied by the build |
 | `~/.config/VoLum/volum.log` | iPlug 2's log, written by the plug-in whatever host loads it |
 
-`~/.config/VoLum/live.conf` belongs to the same folder but is only read, never written: it
-is where you keep the [live host's](#running-volum-without-a-daw) device and period size
-between runs.
+`~/.config/VoLum/live.conf` and `~/.config/VoLum/app.conf` belong to the same folder but are
+only read, never written: they are where the [live](#running-volum-without-a-daw) and
+[standalone](#the-standalone-application) hosts keep their device and period size between
+runs.
 
 `RigsRootCandidates()` in `VoLumPaths.h` resolves the rig collection in this order: the
 bundle's own `Resources/VoLumRigs`, the tree above the module (a dev or portable build, found
@@ -328,8 +363,12 @@ Not implemented yet, each with a `TODO(linux)` at the site:
   therefore unavailable; drop the file into the rig collection folder instead. The planned
   fix is `org.freedesktop.portal.FileChooser` over D-Bus, which works on X11 and Wayland.
 * `ShowMessageBox` returns without showing anything (`IGraphicsLinux.cpp:1211`).
-* The macOS/Windows **standalone application** does not build: its host layer is SWELL, and
-  SWELL has no Linux backend here. VST3 only — no AU, CLAP, LV2 or JIT for now.
+* The macOS/Windows **standalone target** (`IPlugAPP`, whose host layer is SWELL) still does
+  not build: SWELL has no Linux backend here. What ships instead is
+  [`volum-app`](#the-standalone-application), a host of this repository's own that loads the
+  very same bundle — the same window, the same engine, one fewer dependency on a toolkit that
+  does not exist for Linux yet. Choosing between the two is [issue #5](https://github.com/dmos42/VoLum/issues/5).
+  VST3 only — no AU, CLAP, LV2 or JIT for now.
 * The window is X11 (GLX). On a Wayland desktop it runs through XWayland, so a Wayland-only
   compositor works but the window is an X11 one: no client-side decorations, and window
   tiling/PICT scaling follows XWayland.
@@ -377,15 +416,17 @@ map of the remaining work than the list above.
 
 ```
 NeuralAmpModeler/linux/CMakeLists.txt   # the build itself
-NeuralAmpModeler/linux/tools/host-support.h    # load the module, component handler, X11 window: shared by both hosts
+NeuralAmpModeler/linux/tools/host-support.h    # load the module, component handler, X11 window: shared by the three hosts
 NeuralAmpModeler/linux/tools/vst3-probe.cpp    # headless probe: audio path, then the editor
 NeuralAmpModeler/linux/tools/alsa-support.{h,cpp}  # ALSA streams: negotiation, reads/writes that survive an xrun
 NeuralAmpModeler/linux/tools/pcm-format.h      # float <-> S32/S16, the card's half of the buffer
 NeuralAmpModeler/linux/tools/wav-support.{h,cpp}  # WAV in and out, so the checks need no sound card
 NeuralAmpModeler/linux/tools/engine-support.h  # run the plug-in one block at a time, with the level metering
 NeuralAmpModeler/linux/tools/options-support.{h,cpp}  # option keys, config file, precedence
-NeuralAmpModeler/linux/tools/live-runner.{h,cpp}  # the block loop itself, realtime and file-driven
+NeuralAmpModeler/linux/tools/live-runner.{h,cpp}  # open the device, run the blocks, report: shared by both live hosts
 NeuralAmpModeler/linux/tools/alsa-live.cpp     # ALSA in/out host that shows the plug-in's window
+NeuralAmpModeler/linux/tools/app-support.{h,cpp}  # where a standalone finds its VoLum.vst3 bundle
+NeuralAmpModeler/linux/tools/volum-app.cpp     # the standalone: bundle, app.conf, runHost()
 NeuralAmpModeler/VoLumPaths.h           # __linux__ branches: rigs, settings, update state
 NeuralAmpModeler/NeuralAmpModeler.cpp   # null-checks for tag lookups during createView()/attached()
 iPlug2 (branch volum/linux-port)
@@ -403,4 +444,9 @@ standalone host needs too, and a standalone that carried its own copy of the blo
 from the host that was measured. `alsa-live.cpp` is now its usage text, `main()` and nothing else.
 The split was checked by running the old and the new binary over the same WAV: same stdout, and the
 output files identical byte for byte (`sha256 424729f4…`), including the metered run.
+
+`volum-app.cpp` then calls the same `runHost()` those files grew into, with `app-support` in front of
+it for the bundle search. The check that they really do the same thing is the same one: the
+standalone, given the same WAV with no `--module` argument, prints the same run and writes a file
+whose `sha256` is `424729f4…` — the pre-split binary's, `volum-live`'s, and its own.
 

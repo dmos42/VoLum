@@ -284,7 +284,7 @@ install(DIRECTORY "${VOLUM_BUNDLE_DIR}"
   USE_SOURCE_PERMISSIONS)
 
 # ---------------------------------------------------------------------------
-# The two small hosts in tools/. They need the same host-side plumbing
+# The small hosts in tools/. They need the same host-side plumbing
 # (tools/host-support.h) and the same handful of SDK sources, so the list and the
 # settings are shared and each tool adds only what is its own.
 #
@@ -295,10 +295,16 @@ install(DIRECTORY "${VOLUM_BUNDLE_DIR}"
 #                      the editor window - so a guitar can go through VoLum with no
 #                      DAW in front of it, no JACK bridge, and one period of
 #                      buffering instead of three.
+#   volum-app        : the same engine as a stand-alone application, the Linux
+#                      counterpart of the Windows and macOS VoLum app: it finds its
+#                      own bundle, reads its own settings file, and stops when the
+#                      window closes. Built from the files volum-live is built from,
+#                      which is the point - two hosts, one block loop.
 # ---------------------------------------------------------------------------
 
 option(VOLUM_BUILD_PROBE "Build the small headless VST3 host used to check the port" ON)
 option(VOLUM_BUILD_LIVE "Build volum-live, the ALSA host that runs the plug-in with no DAW" ON)
+option(VOLUM_BUILD_APP "Build volum-app, the standalone VoLum window with no DAW" ON)
 
 set(VOLUM_HOST_SDK_SOURCES
   "${VST3_SDK}/base/source/baseiids.cpp"
@@ -358,12 +364,21 @@ if(VOLUM_BUILD_PROBE)
   volum_configure_host(volum-vst3-probe vst3-probe.cpp)
 endif()
 
-if(VOLUM_BUILD_LIVE)
-  if(NOT ALSA_FOUND)
+if(NOT ALSA_FOUND)
+  if(VOLUM_BUILD_LIVE OR VOLUM_BUILD_APP)
     message(WARNING
-      "alsa-lib introuvable : volum-live ne sera pas construit. Installe alsa-lib-devel "
+      "alsa-lib introuvable : volum-live et volum-app ne seront pas construits. Installe alsa-lib-devel "
       "(Fedora) ou libasound2-dev (Ubuntu/Debian), puis relance le configure.")
-  else()
+  endif()
+else()
+  if(VOLUM_BUILD_LIVE)
     volum_configure_alsa_host(volum-live alsa-live.cpp)
+  endif()
+
+  # The standalone is volum-live's engine plus the one thing a host inside a DAW never has
+  # to do: work out on its own which VoLum.vst3 it is running.
+  if(VOLUM_BUILD_APP)
+    volum_configure_alsa_host(volum-app volum-app.cpp)
+    target_sources(volum-app PRIVATE "${CMAKE_CURRENT_LIST_DIR}/tools/app-support.cpp")
   endif()
 endif()

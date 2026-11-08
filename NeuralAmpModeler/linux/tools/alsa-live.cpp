@@ -14,6 +14,11 @@
  period of 64 frames is 1.45 ms at 44.1 kHz, so the round trip can drop to single
  digits.
 
+ What is left in this file is what belongs to a command line tool: the option names and
+ their text. Opening the device, running the blocks and reporting the result is in
+ live-runner.{h,cpp}, where the standalone host (volum-app) reaches for the same code -
+ which is the point: a device that works here works there.
+
  Usage
    volum-live [<module>.so> --help        (full option list)
 
@@ -31,36 +36,17 @@
  ==============================================================================
 */
 
-
-#include "host-support.h"
-
-#include "alsa-support.h"
-#include "engine-support.h"
 #include "live-runner.h"
 #include "options-support.h"
-#include "wav-support.h"
 
-#include <chrono>
 #include <cstdio>
-#include <csignal>
 #include <cstdlib>
-#include <cstring>
 #include <string>
-#include <thread>
-#include <vector>
 
 using namespace volumlinux;
-using Steinberg::Vst::AudioBusBuffers;
-using Steinberg::Vst::ProcessData;
-using Steinberg::Vst::Sample32;
 
 namespace
 {
-
-void onSignal(int)
-{
-  requestStop();
-}
 
 void printUsage(const char* argv0)
 {
@@ -106,7 +92,6 @@ void printUsage(const char* argv0)
     argv0, argv0, argv0);
 }
 
-
 } // namespace
 
 int main(int argc, char** argv)
@@ -116,213 +101,5 @@ int main(int argc, char** argv)
   if (!parseArgs(argc, argv, opt, printUsage, "live.conf"))
     return 2;
 
-  if (opt.listDevices)
-  {
-    listAlsaDevices();
-    return 0;
-  }
-
-  std::signal(SIGINT, onSignal);
-  std::signal(SIGTERM, onSignal);
-
-  printf("=== volum-live : %s ===\n", opt.module.c_str());
-
-  Loaded plugin;
-  LoadOptions loadOpts;
-  loadOpts.listClasses = false;
-  loadOpts.listParams = opt.listParams ? 300 : 0;
-
-  int exitCode = loadPlugin(opt.module, plugin, loadOpts);
-
-  if (exitCode)
-  {
-    unloadPlugin(plugin);
-    return exitCode;
-  }
-
-  applyParams(plugin, opt.params);
-
-  const bool fromFile = !opt.inFile.empty();
-  // A WAV input feeds the card as soon as an output device was asked for; with only
-  // another WAV asked for, it is a plain offline conversion.
-  const bool offline = fromFile && !opt.outRequested;
-  Stream cap, play;
-  std::vector<float> fileIn;
-  int fileChannels = 2;
-  unsigned int fileRate = 48000;
-  double rate = opt.rate;
-  unsigned int blockFrames = opt.period;
-  std::string err;
-
-  if (fromFile)
-  {
-    if (!readWav(opt.inFile, fileIn, fileChannels, fileRate, err))
-    {
-      fprintf(stderr, "%s\n", err.c_str());
-      unloadPlugin(plugin);
-      return 2;
-    }
-
-    printf("entree : %s, %d canaux, %u Hz, %ld images\n", opt.inFile.c_str(), fileChannels, fileRate,
-           long(fileIn.size()) / std::max(1, fileChannels));
-
-    if (offline)
-      rate = opt.rate > 0 ? opt.rate : double(fileRate);
-  }
-
-  if (!offline)
-  {
-    if (!openStream(
-          play, opt.outDevice, SND_PCM_STREAM_PLAYBACK, plugin.outChannels, rate, opt.period, opt.periods, err))
-    {
-      fprintf(stderr, "%s\n", err.c_str());
-      unloadPlugin(plugin);
-      return 4;
-    }
-
-    if (!fromFile && !opt.inDevice.empty())
-    {
-      if (!openStream(cap, opt.inDevice, SND_PCM_STREAM_CAPTURE, plugin.inChannels, rate, opt.period, opt.periods, err))
-      {
-        fprintf(stderr, "%s\n", err.c_str());
-        closeStream(play);
-        unloadPlugin(plugin);
-        return 4;
-      }
-    }
-    else if (fromFile)
-      printf("entree  : \"%s\" lu en direct, aucune carte d'ouverte\n", opt.inFile.c_str());
-    else
-      printf("entree  : aucune capture (--no-in) : le plugin recevra du silence\n");
-
-    if (cap.pcm && cap.rate != play.rate)
-    {
-      fprintf(stderr, "les deux flux ne tournent pas a la meme cadence (%u Hz en entree, %u Hz en sortie)\n", cap.rate,
-              play.rate);
-      fprintf(stderr, "force une cadence commune avec --rate, ou choisis un seul peripherique pour les deux\n");
-      closeStream(cap);
-      closeStream(play);
-      unloadPlugin(plugin);
-      return 4;
-    }
-
-    rate = double(play.rate);
-    blockFrames = play.periodFrames;
-
-    double queuedFrames = double(play.bufferFrames) + double(play.periodFrames);
-
-    if (cap.pcm)
-    {
-      blockFrames = std::max(cap.periodFrames, play.periodFrames);
-      queuedFrames += double(cap.bufferFrames) + double(cap.periodFrames);
-    }
-
-    printf("%s prevu dans la carte : %.1f ms (auxquels s'ajoutent le trajet USB et l'ampli)\n",
-           cap.pcm ? "aller-retour" : "latence de sortie", queuedFrames * 1000.0 / rate);
-
-    if (fromFile && fileRate != play.rate)
-      printf("attention : le fichier est a %u Hz, la carte joue a %u Hz : il sera lu a la cadence de la carte\n",
-             fileRate, play.rate);
-  }
-
-  if (!startProcessing(plugin, rate, int(blockFrames)))
-  {
-    fprintf(stderr, "le plugin a refuse %d echantillons par bloc a %.0f Hz : essaie --period %u\n", blockFrames, rate,
-            blockFrames * 2);
-    closeStream(cap);
-    closeStream(play);
-    unloadPlugin(plugin);
-    return 5;
-  }
-
-  if (opt.check)
-  {
-    printf("verification : tout est negocie, rien n'est joue (--check)\n");
-    plugin.processor->setProcessing(0);
-    plugin.component->setActive(0);
-    closeStream(cap);
-    closeStream(play);
-    unloadPlugin(plugin);
-    return 0;
-  }
-
-  Engine eng;
-  eng.setup(plugin, blockFrames);
-
-  EditorSession editor;
-  bool hasEditor = false;
-
-  if (opt.ui)
-  {
-    const int editorStatus = editor.open(plugin, "VoLum live");
-
-    if (editorStatus == 0)
-      hasEditor = true;
-    else
-      printf("  suite sans fenetre : %s\n", editorStatus == 1 ? "le plugin n'expose pas d'editeur"
-                                            : editorStatus == 2
-                                              ? "createView n'a rien donne"
-                                              : "pas de serveur X11 (DISPLAY) - relance depuis ta session");
-  }
-
-  WavWriter writer;
-
-  if (!opt.outFile.empty() && !writer.open(opt.outFile, unsigned(plugin.outChannels), unsigned(rate)))
-  {
-    fprintf(stderr, "impossible d'ecrire \"%s\"\n", opt.outFile.c_str());
-    exitCode = 2;
-  }
-
-  FileSource file{fromFile ? &fileIn : nullptr, fileChannels, 0};
-
-  const int status = offline ? runOffline(opt, fileIn, fileChannels, eng, writer, editor, hasEditor, rate)
-                             : runRealtime(opt, cap, play, eng, editor, hasEditor, file, writer);
-
-  if (status)
-    exitCode = status;
-
-  printf("blocs traites : %ld, erreurs de traitement : %ld", eng.blocks, eng.processErrors);
-
-  if (!offline)
-    printf(", xruns : entree %ld / sortie %ld", cap.xruns, play.xruns);
-
-  printf("\n");
-
-  if (!offline && play.xruns > 8)
-    printf(
-      "  conseil : la sortie se vide regulierement (craquements audibles)."
-      "\n   augmente --periods pour un tampon plus grand, ou --period si tu passes par le serveur son\n");
-
-  // An input nobody fed (--no-in, no --in, no --in-file) is silence by construction, so
-  // an empty output under it is not a fault to report.
-  const bool fed = offline || fromFile || cap.pcm != nullptr;
-
-  if (eng.runPeakOut < 1e-6 && eng.blocks > 0)
-  {
-    if (!fed)
-      printf("entree non alimentee : le silence en sortie etait attendu (--in ou --in-file pour jouer)\n");
-    else
-    {
-      printf("sortie muette : verifie le branchement, le volume de l'ampli, ou --gain\n");
-      exitCode = exitCode ? exitCode : 6;
-    }
-  }
-  else if (eng.blocks > 0)
-    printf("verdict : sortie sonore\n");
-
-  if (hasEditor)
-    editor.close();
-
-  plugin.processor->setProcessing(0);
-  plugin.component->setActive(0);
-
-  writer.close();
-
-  closeStream(cap);
-  closeStream(play);
-
-  unloadPlugin(plugin);
-
-  printf("=== volum-live termine (code %d) ===\n", exitCode);
-  return exitCode;
+  return runHost(opt, "VoLum live", "volum-live");
 }
