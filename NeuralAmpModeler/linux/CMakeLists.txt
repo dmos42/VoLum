@@ -20,6 +20,16 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# Ubuntu turns on -D_FORTIFY_SOURCE=3 in the compiler for every -O2 build; Fedora does not.
+# That difference hides port bugs on the dev machine: iPlug 2 passed 32 as the snprintf size
+# where 32-i bytes were left, and a fortified build aborts the process inside the plug-in
+# constructor (glibc: "*** buffer overflow detected ***"), which killed the CI probe while
+# every local Fedora build was green. Turn this on locally to compile the way CI does.
+option(VOLUM_FORTIFY "Compile with -D_FORTIFY_SOURCE=3, matching Ubuntu CI" OFF)
+if(VOLUM_FORTIFY)
+  add_compile_options(-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3)
+endif()
+
 set(PROJECT_DIR "${CMAKE_CURRENT_LIST_DIR}/..")
 get_filename_component(REPO_ROOT "${PROJECT_DIR}/.." ABSOLUTE)
 set(IPLUG2_ROOT "${REPO_ROOT}/iPlug2")

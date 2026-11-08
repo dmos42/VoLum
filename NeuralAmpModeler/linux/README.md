@@ -87,6 +87,17 @@ is what turns iPlug's logging off — see the comment in `CMakeLists.txt`):
 cmake -S NeuralAmpModeler/linux -B build/linux-dbg -G Ninja -DCMAKE_BUILD_TYPE=Debug
 ```
 
+Ubuntu turns `-D_FORTIFY_SOURCE=3` on for every optimised build; Fedora does not. Bugs only
+the fortifier catches — an `snprintf` whose size argument is larger than the room left in the
+buffer, which is what happened in iPlug 2's `CurrentTime()` — pass on a Fedora box and abort
+the process in CI (`*** buffer overflow detected ***`, exit 134, before a host can even load
+the bundle). Compile the way CI does when touching the platform layer:
+
+```bash
+cmake -S NeuralAmpModeler/linux -B build/linux-fort -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release -DVOLUM_FORTIFY=ON
+```
+
 ## Install into a DAW
 
 ```bash
