@@ -15,6 +15,8 @@
                     [--seconds N]      audio run length (default 2)
                     [--rate R]         sample rate (default 48000)
                     [--param IDX:VAL]  set a normalized parameter before running
+                    [--out-file F.wav] record the plug-in's output during the run, so the
+                                       level over time can be looked at afterwards
                     [--ui]             also open the editor inside a probe window
                     [--uiseconds N]    how long to keep the editor open (default 6)
                     [--resize SEC:WxH] resize the editor from the host side after SEC seconds,
@@ -31,6 +33,7 @@
 */
 
 #include "host-support.h"
+#include "wav-support.h"
 
 #include <algorithm>
 #include <chrono>
@@ -71,6 +74,7 @@ struct Options
   int uiSeconds = 6;
   std::vector<UIStep> steps; // sizes and clicks the host sends, in the order asked for
   int maxParams = 250;
+  std::string outFile; // write the plug-in output while the tone runs, to look at it afterwards
   std::vector<std::pair<int, double>> params; // parameter index -> normalized value
 };
 
@@ -130,6 +134,8 @@ bool parseArgs(int argc, char** argv, Options& opt)
 
       opt.steps.push_back({std::atof(v), false, std::atoi(first + 1), std::atoi(second + 1)});
     }
+    else if (const char* v = optionValue(arg, "--out-file", i, argc, argv))
+      opt.outFile = v;
     else if (const char* v = optionValue(arg, "--param", i, argc, argv))
     {
       const int idx = std::atoi(v);
@@ -228,6 +234,18 @@ int main(int argc, char** argv)
 
     double peakIn = 0.0, peakOut = 0.0, sumOut = 0.0, sumIn = 0.0;
     long countedSamples = 0;
+    // Recorded as it runs, not reconstructed afterwards: what matters here is the level
+    // per second, which is how an amp that feeds on itself shows up (a quiet input coming
+    // out as loud as a loud one) and no number printed at the end can tell that.
+    volumlinux::WavWriter writer;
+
+    if (!opt.outFile.empty()
+        && !writer.open(
+          opt.outFile, static_cast<unsigned int>(plugin.outChannels), static_cast<unsigned int>(opt.rate)))
+    {
+      fprintf(stderr, "impossible d'ecrire \"%s\"\n", opt.outFile.c_str());
+      return 2;
+    }
     long resultErrors = 0;
     double phase = 0.0;
     const double twoPi = 2.0 * 3.14159265358979312;
@@ -259,6 +277,9 @@ int main(int argc, char** argv)
 
       const Steinberg::tresult r = plugin.processor->process(data);
 
+      if (writer.isOpen())
+        writer.block(outPointers, blockLength);
+
       if (r != Steinberg::kResultOk)
         ++resultErrors;
 
@@ -287,6 +308,11 @@ int main(int argc, char** argv)
 
     const double rmsIn = countedSamples ? std::sqrt(sumIn / countedSamples) : 0.0;
     const double rmsOut = countedSamples ? std::sqrt(sumOut / countedSamples) : 0.0;
+
+    // Patched before the numbers are printed: a WAV whose sizes are still zero plays in a
+    // streaming player and is refused by anything that reads the header first, which is
+    // exactly what the file is recorded for.
+    writer.close();
 
     printf("traitement : %d blocs de %d, erreurs=%ld\n", blocks, blockLength, resultErrors);
     printf("entree : crete=%.4f rms=%.4f | sortie : crete=%.4f rms=%.4f\n", peakIn, rmsIn, peakOut, rmsOut);

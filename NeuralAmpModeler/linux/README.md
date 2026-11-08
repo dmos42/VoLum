@@ -378,7 +378,19 @@ instead of a directory.
 `volum-vst3-probe` is a headless host: `dlopen` the module, run the factory, instantiate,
 feed a test tone through the audio path, and optionally open the editor in a bare X11
 window. It answers "does the port load and make sound?" without a DAW, which is what CI
-needs. Its VST3 plumbing — loading the module, the component handler, the X11 window that
+needs.
+
+`--out-file F.wav` records that tone through the plug-in as it runs, which is how a claim
+like "the amp feeds on itself" gets checked rather than argued: the probe's tone drops 12 dB
+halfway through the run, so a chain that only colours the signal comes out about 10.5 dB down
+as well, and a chain that generates energy does not. Six configurations were measured that
+way on this machine (plain, delay, reverb, reverb+shimmer, delay with feedback and mix at
+maximum, delay+reverb+shimmer): every one tracked the input within 1.6 dB of what the
+amp's own compression accounts for except the deliberately unstable one — the delay at
+maximum feedback and maximum mix, which held 8.4 dB of the drop because it is recirculating
+the signal by construction. Nothing else rose on its own over 44 seconds.
+
+Its VST3 plumbing — loading the module, the component handler, the X11 window that
 takes the embedded editor — sits in `tools/host-support.h` and is shared with
 [`volum-live`](#running-volum-without-a-daw), so both hosts see the same behaviour.
 
