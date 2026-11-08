@@ -338,6 +338,32 @@ What it deliberately is not: a DAW. One stereo pair in and out, no timeline, no 
 MIDI in the host yet ([issue #6](https://github.com/dmos42/VoLum/issues/6)), and no settings
 window of its own — the keys above are the settings for now.
 
+### One file you can run: the AppImage
+
+`cmake --install` already lays out everything a package needs, so the package is that tree
+plus a mount. `packaging/appimage.bash` stages the install rules into an AppDir, puts
+`VoLum.vst3` one level above `bin/` — where the program already looks — adds `AppRun`, the
+`.desktop` entry and the icon, and hands the tree to `appimagetool`:
+
+```bash
+NeuralAmpModeler/linux/packaging/appimage.bash          # -> build/linux-appimage/VoLum-linux-x86_64-<version>.AppImage
+./build/linux-appimage/VoLum-linux-x86_64-1.3.1.AppImage
+```
+
+What goes in is VoLum and nothing else. No `libasound` (its job is to read this machine's
+ALSA configuration and its plugin modules live beside the system library), no `libGL` or
+`libX11` (the machine's graphics stack), no GLib (the portal dialogs are the desktop's own,
+and a private copy could not reach its session bus). The staged install puts a second copy of
+the bundle under `home/<whoever built this>/.vst3` because the bundle's install destination
+is a path rather than a prefix; the script drops that tree, and the AppImage says which
+username it just refused to ship.
+
+The floor is the machine's, not the bundle's: it needs X11 with GLX, ALSA, FUSE (or
+`--appimage-extract-and-run`), and a glibc at least as new as the one it was linked against
+(GLIBC_2.38 as of this writing). The rigs ride inside it — 249 `.nam` files, most of the
+image's size — which is what makes the first run read its amp model through a squashfs mount
+instead of a directory.
+
 ## The probe harness
 
 `volum-vst3-probe` is a headless host: `dlopen` the module, run the factory, instantiate,
