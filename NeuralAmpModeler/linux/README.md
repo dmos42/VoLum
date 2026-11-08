@@ -379,6 +379,12 @@ map of the remaining work than the list above.
 NeuralAmpModeler/linux/CMakeLists.txt   # the build itself
 NeuralAmpModeler/linux/tools/host-support.h    # load the module, component handler, X11 window: shared by both hosts
 NeuralAmpModeler/linux/tools/vst3-probe.cpp    # headless probe: audio path, then the editor
+NeuralAmpModeler/linux/tools/alsa-support.{h,cpp}  # ALSA streams: negotiation, reads/writes that survive an xrun
+NeuralAmpModeler/linux/tools/pcm-format.h      # float <-> S32/S16, the card's half of the buffer
+NeuralAmpModeler/linux/tools/wav-support.{h,cpp}  # WAV in and out, so the checks need no sound card
+NeuralAmpModeler/linux/tools/engine-support.h  # run the plug-in one block at a time, with the level metering
+NeuralAmpModeler/linux/tools/options-support.{h,cpp}  # option keys, config file, precedence
+NeuralAmpModeler/linux/tools/live-runner.{h,cpp}  # the block loop itself, realtime and file-driven
 NeuralAmpModeler/linux/tools/alsa-live.cpp     # ALSA in/out host that shows the plug-in's window
 NeuralAmpModeler/VoLumPaths.h           # __linux__ branches: rigs, settings, update state
 NeuralAmpModeler/NeuralAmpModeler.cpp   # null-checks for tag lookups during createView()/attached()
@@ -391,3 +397,10 @@ iPlug2 (branch volum/linux-port)
   IPlug/VST3/IPlugVST3_View.h                  # reparenting the window into a host
   Dependencies/IGraphics/MetalNanoVG           # drop the per-frame sync blit; drain on teardown
 ```
+
+The `*-support` files and `live-runner` came out of `alsa-live.cpp` unchanged: they are the part a
+standalone host needs too, and a standalone that carried its own copy of the block loop would drift
+from the host that was measured. `alsa-live.cpp` is now its usage text, `main()` and nothing else.
+The split was checked by running the old and the new binary over the same WAV: same stdout, and the
+output files identical byte for byte (`sha256 424729f4…`), including the metered run.
+

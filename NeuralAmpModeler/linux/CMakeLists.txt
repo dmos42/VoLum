@@ -320,6 +320,17 @@ set(VOLUM_HOST_SDK_SOURCES
   "${VST3_SDK}/public.sdk/source/vst/vstinitiids.cpp"
 )
 
+# What a host that puts sound through the plug-in is made of, once, instead of once
+# per host: the ALSA streams, the WAV reader/writer the tests use, the option
+# surface, and the block loop itself. volum-live already ran on this code; the
+# standalone is supposed to hear the same guitar, so it gets the same code.
+set(VOLUM_HOST_SUPPORT_SOURCES
+  "${CMAKE_CURRENT_LIST_DIR}/tools/alsa-support.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/tools/options-support.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/tools/wav-support.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/tools/live-runner.cpp"
+)
+
 macro(volum_configure_host target source)
   add_executable(${target}
     "${CMAKE_CURRENT_LIST_DIR}/tools/${source}"
@@ -335,6 +346,14 @@ macro(volum_configure_host target source)
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 endmacro()
 
+# A host that drives a sound card: the shared plumbing plus ALSA itself.
+macro(volum_configure_alsa_host target source)
+  volum_configure_host(${target} ${source})
+  target_sources(${target} PRIVATE ${VOLUM_HOST_SUPPORT_SOURCES})
+  target_include_directories(${target} PRIVATE ${ALSA_INCLUDE_DIRS})
+  target_link_libraries(${target} PRIVATE ${ALSA_LIBRARIES})
+endmacro()
+
 if(VOLUM_BUILD_PROBE)
   volum_configure_host(volum-vst3-probe vst3-probe.cpp)
 endif()
@@ -345,8 +364,6 @@ if(VOLUM_BUILD_LIVE)
       "alsa-lib introuvable : volum-live ne sera pas construit. Installe alsa-lib-devel "
       "(Fedora) ou libasound2-dev (Ubuntu/Debian), puis relance le configure.")
   else()
-    volum_configure_host(volum-live alsa-live.cpp)
-    target_include_directories(volum-live PRIVATE ${ALSA_INCLUDE_DIRS})
-    target_link_libraries(volum-live PRIVATE ${ALSA_LIBRARIES})
+    volum_configure_alsa_host(volum-live alsa-live.cpp)
   endif()
 endif()
