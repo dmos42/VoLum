@@ -53,10 +53,13 @@ jobs:
         shell: bash
 
       - name: Install X11 and OpenGL development files
+        # glib2 is what the plug-in uses to ask the desktop for its dialogs; dbus and
+        # python3-gi are what let the scripted portal answer instead of a person.
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            ninja-build xvfb libx11-dev libgl1-mesa-dev libglu1-mesa-dev libatomic1 libasound2-dev
+            ninja-build xvfb libx11-dev libgl1-mesa-dev libglu1-mesa-dev libatomic1 libasound2-dev \
+            libglib2.0-dev dbus dbus-daemon dbus-bin python3-gi gir1.2-glib-2.0
         shell: bash
 
       - name: Configure
@@ -69,6 +72,30 @@ jobs:
 
       - name: Build
         run: cmake --build build/linux
+        shell: bash
+
+      - name: Check the plug-in asks the desktop for its dialogs
+        # A runner cannot click a file chooser, but it can say whether the portal client
+        # is even in the module: with it, the module links GLib's D-Bus. Without it the
+        # pickers are stubs, the run stays green, and only the log knows.
+        run: |
+          ldd build/linux/VoLum.vst3/Contents/x86_64-linux/VoLum.vst3.so | grep -q 'libgio-2\.0' \
+            || { echo "le module ne lie pas libgio : glib2-devel (libglib2.0-dev) manquait au configure, les boites de dialogue sont absentes"; exit 1; }
+        shell: bash
+
+      - name: Ask a scripted desktop for its dialogs
+        # test/fake-portal.py takes the portal name on a throwaway session bus and
+        # refuses any request it cannot decode, so what is checked here is the shape of
+        # the requests the plug-in sends: filters, folder and name hints, the token, and
+        # what comes back. The script says "test ignore" when its own fixture is
+        # missing, which is why the step insists on seeing the summary line.
+        run: |
+          out="$(NeuralAmpModeler/linux/test/portal-test.bash build/linux 2>&1)"
+          code=$?
+          printf '%s\n' "$out"
+          [ "$code" -eq 0 ] || exit "$code"
+          printf '%s\n' "$out" | grep -q 'controles, aucun clic' \
+            || { echo "le test du portail n'a rien verifie : il lui faut dbus et python3-gi"; exit 1; }
         shell: bash
 
       - name: Probe the audio path
@@ -149,7 +176,7 @@ jobs:
         # Its audio is deliberately not compared with the headless runs: on this runner an
         # editor attached to the plug-in changes something audible part way through, and
         # does so differently from one machine to the next. That is a plug-in question for
-        # issue #4, not something the host comparison should lean on.
+        # issue #3 (noted there), not something the host comparison should lean on.
         run: |
           set -o pipefail
           xvfb-run -a -s "-screen 0 1440x900x24" \

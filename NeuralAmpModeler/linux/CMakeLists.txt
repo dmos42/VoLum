@@ -49,6 +49,21 @@ find_package(Threads REQUIRED)
 # Optional: volum-live is the only tool that talks to ALSA; the plug-in itself does not.
 find_package(ALSA)
 
+# Optional: GLib's D-Bus client, which is how the plug-in reaches the XDG desktop
+# portal - the file, folder and colour dialogs of the desktop itself. A session that has
+# a portal already runs GLib; a headless build box might not, and there the plug-in is
+# built with no dialogs (as it was until now) rather than not built at all.
+find_package(PkgConfig QUIET)
+if(PKG_CONFIG_FOUND)
+  pkg_check_modules(VOLUM_GIO IMPORTED_TARGET gio-2.0)
+endif()
+if(NOT VOLUM_GIO_FOUND)
+  message(WARNING
+    "gio-2.0 introuvable : le plug-in sera construit sans boites de dialogue natives "
+    "(fichier, dossier, couleur). Installe glib2-devel (Fedora) ou libglib2.0-dev "
+    "(Ubuntu/Debian), puis relance le configure.")
+endif()
+
 # libatomic. Two 64-bit atomics in the code we link resolve to __atomic_store/__atomic_load
 # libcalls rather than inline instructions. Fedora's GCC adds -latomic to the link line by
 # itself, so the bundle links clean here; GCC on the Ubuntu runners does not, the .so is still
@@ -136,6 +151,13 @@ set(IGRAPHICS_SOURCES
   "${IPLUG2_ROOT}/IGraphics/Platforms/IGraphicsLinux.cpp"
   "${DEPS_PATH}/IGraphics/NanoVG/src/nanovg.c"
 )
+
+# The dialogs the platform layer shows are the desktop's own, reached over the session
+# bus (see IGraphicsLinuxPortal.h). GLib is what speaks D-Bus here: every desktop session
+# has its runtime, while a build box only has it if the developer package is installed.
+if(VOLUM_GIO_FOUND)
+  list(APPEND IGRAPHICS_SOURCES "${IPLUG2_ROOT}/IGraphics/Platforms/IGraphicsLinuxPortal.cpp")
+endif()
 
 set(VST3_SDK_SOURCES
   "${VST3_SDK}/base/source/baseiids.cpp"
@@ -249,6 +271,13 @@ target_link_libraries(volum-vst3 PRIVATE
   ${CMAKE_DL_LIBS}
   ${VOLUM_LIBATOMIC}
 )
+
+# VOLUM_HAVE_PORTAL is what IGraphicsLinux.cpp looks at: with it the pickers ask the
+# desktop, without it they say so in the log and change nothing.
+if(VOLUM_GIO_FOUND)
+  target_compile_definitions(volum-vst3 PRIVATE VOLUM_HAVE_PORTAL=1)
+  target_link_libraries(volum-vst3 PRIVATE PkgConfig::VOLUM_GIO)
+endif()
 
 # ---------------------------------------------------------------------------
 # Resources: fonts and images next to the module, so IGraphicsLinux finds them
@@ -381,4 +410,31 @@ else()
     volum_configure_alsa_host(volum-app volum-app.cpp)
     target_sources(volum-app PRIVATE "${CMAKE_CURRENT_LIST_DIR}/tools/app-support.cpp")
   endif()
+endif()
+
+# ---------------------------------------------------------------------------
+# test/portal-test.bash drives volum-portal-check. A file chooser needs fingers to
+# answer it, so the check answers it with test/fake-portal.py on a throwaway session
+# bus instead: what has to be proven is that the request leaves this process in the
+# form the portal expects, and a scripted portal is what notices a filter list or a
+# folder hint that came out wrong.
+# ---------------------------------------------------------------------------
+
+option(VOLUM_BUILD_PORTAL_CHECK "Build volum-portal-check, driven by test/portal-test.bash" ON)
+
+if(VOLUM_BUILD_PORTAL_CHECK AND VOLUM_GIO_FOUND)
+  add_executable(volum-portal-check
+    "${CMAKE_CURRENT_LIST_DIR}/tools/portal-check.cpp"
+    "${IPLUG2_ROOT}/IGraphics/Platforms/IGraphicsLinuxPortal.cpp"
+  )
+
+  target_include_directories(volum-portal-check PRIVATE
+    "${IPLUG2_ROOT}/IGraphics/Platforms"
+    "${CMAKE_CURRENT_LIST_DIR}/tools"
+  )
+  target_link_libraries(volum-portal-check PRIVATE PkgConfig::VOLUM_GIO)
+  target_compile_features(volum-portal-check PRIVATE cxx_std_17)
+
+  set_target_properties(volum-portal-check PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 endif()

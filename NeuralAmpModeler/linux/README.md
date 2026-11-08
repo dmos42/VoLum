@@ -31,8 +31,10 @@ Captured headless by the probe harness (`VOLUM_LINUX_CAPTURE` under Xvfb) at 900
 view, rig list, the Pre and Post pedalboards, the header buttons. Fonts, icons, gradients and
 the pedal artwork all come through NanoVG, so this is
 [`IGraphicsLinux.cpp`](../../iPlug2/IGraphics/Platforms/IGraphicsLinux.cpp) doing on X11 + GLX
-what the macOS and Windows backends do. What a still cannot show is the file picker and the
-message box that do nothing yet — see [Limitations](#limitations).
+what the macOS and Windows backends do. What a still cannot show is the dialogs: the file,
+folder and colour prompts are the desktop's own, asked over the session bus
+([Dialogs the desktop owns](#dialogs-the-desktop-owns)), and the message box is still
+missing — see [Limitations](#limitations).
 
 ## Requirements
 
@@ -40,7 +42,7 @@ Fedora 44 (what the port was developed on). Everything is in the repositories:
 
 ```bash
 sudo dnf install @development-tools cmake ninja-build clang \
-  alsa-lib-devel libX11-devel libglvnd-devel mesa-libGL-devel freetype-devel \
+  alsa-lib-devel glib2-devel libX11-devel libglvnd-devel mesa-libGL-devel freetype-devel \
   xcb-util-devel xcb-util-image-devel xcb-util-wm-devel xcb-util-cursor-devel libXcursor-devel \
   xorg-x11-server-Xvfb
 ```
@@ -55,12 +57,13 @@ sudo dnf install @development-tools cmake ninja-build clang \
 | `libglvnd-devel`, `mesa-libGL-devel` | GLX + OpenGL 2 for NanoVG (`IGRAPHICS_GL2`) |
 | `freetype-devel` | font loading through NanoVG |
 | `alsa-lib-devel` | needed by `volum-live` and `volum-app`, the hosts that open the capture and playback streams themselves; the plug-in never touches a device |
+| `glib2-devel` | D-Bus, which is how the plug-in asks the desktop for a file, a folder or a colour — without it the module builds with no dialogs at all |
 | `xorg-x11-server-Xvfb` | headless X server, only for the probe harness and CI |
 
 Debian/Ubuntu names, for anyone who ports the CI later — not verified on a Debian box:
 `build-essential cmake ninja-build libx11-dev libgl1-mesa-dev libfreetype-dev
 libxcursor-dev libxcb-util-dev libxcb-image0-dev libxcb-icccm4-dev libxcb-cursor-dev
-libasound2-dev libatomic1 xvfb`.
+libasound2-dev libglib2.0-dev libatomic1 xvfb`.
 
 `libatomic1` matters: two 64-bit atomics compile to `__atomic_store`/`__atomic_load` libcalls,
 and GCC below 14 does not add `-latomic` on its own. A shared library links fine with an
@@ -354,15 +357,63 @@ bundle's own `Resources/VoLumRigs`, the tree above the module (a dev or portable
 with `dladdr`), `~/.local/share/VoLum`, `~/.vst3/VoLum.vst3/Contents/Resources`, then
 `/usr/local/share`, `/usr/share`, `/usr/lib{,64}`.
 
+## Dialogs the desktop owns
+
+The file, folder and colour prompts are not drawn by the plug-in: they are the desktop's
+own, asked for over the session bus through the
+[XDG desktop portal](https://flatpak.github.io/xdg-desktop-portal/). That is the only way to
+get a native chooser on Wayland, it puts no toolkit inside the DAW's process, and the dialog
+looks like whatever the user's desktop looks like.
+
+| what iPlug asks for | what the desktop is asked |
+| --- | --- |
+| `PromptForFile`, `PromptForFiles` | `org.freedesktop.portal.FileChooser.OpenFile` / `.SaveFile`, the second with `multiple` |
+| `PromptForDirectory` | the same `OpenFile` with `directory: true` — an option from portal version 3; older desktops ignore it and offer files |
+| `PromptForColor` | `org.freedesktop.portal.Screenshot.PickColor`; the answer arrives as `color` (three sRGB doubles) or, on older desktops, `rgb` (three integers of 0-255) |
+
+The client is
+[`IGraphicsLinuxPortal.cpp`](../../iPlug2/IGraphics/Platforms/IGraphicsLinuxPortal.cpp), with
+GLib's D-Bus library doing the wire protocol. `glib2-devel` (Fedora) or `libglib2.0-dev`
+(Ubuntu) is what puts it in the build; when those are missing the configure says so and the
+module is built with no dialogs at all — which is exactly what every Linux build did until
+now, rather than failing.
+
+Two things a dialog like this needs, and a plug-in does not normally have:
+
+* **a loop to wait in.** The portal replies with the object path of a *request*; the answer
+  itself comes later, as a signal. So the platform layer opens a GLib main context of its
+  own, pumps that one until the answer arrives, and never turns the gears of the host's
+  event loop. This blocks the UI thread for as long as the person browses folders, which is
+  what a modal dialog does on every other platform; the audio thread is not involved.
+* **a window to be put against.** `x11:0x…` is offered only when the editor is a top-level
+  window of its own (`volum-app`, the probe). Embedded in a DAW the request goes out with no
+  parent window and the desktop places the dialog where it likes. A portal that rejects a
+  request over that window gets the same request again without it: losing the link between
+  two windows is better than losing the dialog.
+
+Clicking a portal cannot be automated, so the protocol is checked against a scripted one:
+
+```bash
+test/portal-test.bash        # a throwaway session bus, test/fake-portal.py playing the desktop
+```
+
+Nine requests go out and thirteen things are checked. The fake answers every request, and
+refuses anything it cannot decode — a filter list that is not `a(sa(us))`, a folder hint
+that is not a nul-terminated bytestring, a request with no `handle_token`. What the run
+covers: the extension list iPlug hands the platform layer (`nam wav` becoming `*.nam`,
+`*.wav`), a save's folder and name hints, a percent-encoded path coming back as a path, a
+cancel, and a desktop that answers colours the old way.
+
 ## Limitations
 
 Not implemented yet, each with a `TODO(linux)` at the site:
 
-* `PromptForFile` / `PromptForFiles` / `PromptForDirectory` / `PromptForColor` (around
-  `IGraphicsLinux.cpp:1223`). Importing your own `.nam` through the plug-in's file browser is
-  therefore unavailable; drop the file into the rig collection folder instead. The planned
-  fix is `org.freedesktop.portal.FileChooser` over D-Bus, which works on X11 and Wayland.
-* `ShowMessageBox` returns without showing anything (`IGraphicsLinux.cpp:1211`).
+* `ShowMessageBox` returns without showing anything (`IGraphicsLinux.cpp:1211`). No portal
+  offers a modal message box, so this one has to be drawn in-app — issue #2. The file,
+  folder and colour prompts do work, through the portal
+  ([Dialogs the desktop owns](#dialogs-the-desktop-owns)); a session with no portal at all
+  — a headless runner, a build container — gets a line in the log and nothing on screen,
+  which is what `volum-vst3-probe` reports in CI.
 * The macOS/Windows **standalone target** (`IPlugAPP`, whose host layer is SWELL) still does
   not build: SWELL has no Linux backend here. What ships instead is
   [`volum-app`](#the-standalone-application), a host of this repository's own that loads the
@@ -427,10 +478,14 @@ NeuralAmpModeler/linux/tools/live-runner.{h,cpp}  # open the device, run the blo
 NeuralAmpModeler/linux/tools/alsa-live.cpp     # ALSA in/out host that shows the plug-in's window
 NeuralAmpModeler/linux/tools/app-support.{h,cpp}  # where a standalone finds its VoLum.vst3 bundle
 NeuralAmpModeler/linux/tools/volum-app.cpp     # the standalone: bundle, app.conf, runHost()
+NeuralAmpModeler/linux/tools/portal-check.cpp  # drives the portal client exactly as the plug-in does
+NeuralAmpModeler/linux/test/fake-portal.py     # a desktop that answers back, on a throwaway session bus
+NeuralAmpModeler/linux/test/portal-test.bash   # nine requests, thirteen checks, nobody clicking
 NeuralAmpModeler/VoLumPaths.h           # __linux__ branches: rigs, settings, update state
 NeuralAmpModeler/NeuralAmpModeler.cpp   # null-checks for tag lookups during createView()/attached()
 iPlug2 (branch volum/linux-port)
   IGraphics/Platforms/IGraphicsLinux.{h,cpp}   # 11 lines of \todo -> ~1600 lines of X11/GLX backend
+  IGraphics/Platforms/IGraphicsLinuxPortal.{h,cpp}  # the dialogs: portal requests over D-Bus
   IGraphics/Drawing/IGraphicsNanoVG.{h,cpp}    # GL2 context plumbing the backend needs
   IGraphics/IGraphics_select.h, IGraphics_include_in_plug_{hdr,src}.h, IGraphicsPrivate.h
   IPlug/IPlugPaths.cpp                         # Linux app-support / bundle resource paths
@@ -449,4 +504,11 @@ output files identical byte for byte (`sha256 424729f4…`), including the meter
 it for the bundle search. The check that they really do the same thing is the same one: the
 standalone, given the same WAV with no `--module` argument, prints the same run and writes a file
 whose `sha256` is `424729f4…` — the pre-split binary's, `volum-live`'s, and its own.
+
+The dialogs were split the other way round. `IGraphicsLinux.cpp` grew four stubs into a call
+to `IGraphicsLinuxPortal.cpp`, which owns the D-Bus conversation, the portal's
+request/Response pair and the extension-to-pattern translation; the platform layer keeps none
+of that knowledge itself. One file rather than four is what makes it testable at all: the
+client links on its own — no IGraphics, no window, no OpenGL — so `test/portal-test.bash` can
+drive it, and `test/fake-portal.py` can read back what it sent.
 
