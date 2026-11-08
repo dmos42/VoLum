@@ -85,6 +85,23 @@ jobs:
             --ui --seconds 1 --uiseconds 3
         shell: bash
 
+      - name: Resize the editor the way a DAW does
+        # Opening the editor proves less than it looks like: a host sizes the view inside its
+        # own container, so the plug-in only ever gets a ConfigureNotify for a window whose
+        # size it does not own. Carla took a SIGSEGV on the first such size - the resize
+        # reached the graphics backend between two frames, where the GLX context had already
+        # been released, so the framebuffer came back null and EndFrame() dereferenced it.
+        # A 1x1 is what a tiling compositor hands out, and going back up is the other half of
+        # a user's drag. Exit code 7 names the step that lost the editor.
+        run: |
+          xvfb-run -a -s "-screen 0 1440x900x24" \
+            ./build/linux/volum-vst3-probe \
+            build/linux/VoLum.vst3/Contents/x86_64-linux/VoLum.vst3.so \
+            --ui-only --ui --uiseconds 6 \
+            --resize 1:900x700 --resize 2:640x480 --resize 3:1100x850 \
+            --resize 4:1x1 --resize 5:900x700
+        shell: bash
+
       - name: Run the live host over a file
         # With a WAV in and a WAV out and no --out, volum-live never opens a sound card,
         # so this covers the ALSA front-end, the WAV reader and the processing chain on a
