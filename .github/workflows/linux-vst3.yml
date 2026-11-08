@@ -88,7 +88,9 @@ jobs:
       - name: Run the live host over a file
         # With a WAV in and a WAV out and no --out, volum-live never opens a sound card,
         # so this covers the ALSA front-end, the WAV reader and the processing chain on a
-        # runner that has no audio device. A silent output makes the host exit 6.
+        # runner that has no audio device. A silent output makes the host exit 6. The
+        # module has to be named: the default path is the installed bundle under ~/.vst3,
+        # which a runner does not have.
         run: |
           python3 - <<'PY'
           import math, struct, wave
@@ -102,7 +104,10 @@ jobs:
                   frames += struct.pack('<hh', value, value)
               wav.writeframes(bytes(frames))
           PY
-          ./build/linux/volum-live --in-file /tmp/ci-tone.wav --out-file /tmp/ci-out.wav --meter 0 --no-ui
+          test -x ./build/linux/volum-live || { echo "volum-live absent : alsa-lib n'a pas ete trouve au configure"; exit 1; }
+          ./build/linux/volum-live \
+            build/linux/VoLum.vst3/Contents/x86_64-linux/VoLum.vst3.so \
+            --in-file /tmp/ci-tone.wav --out-file /tmp/ci-out.wav --meter 0 --no-ui
           test -s /tmp/ci-out.wav
         shell: bash
 
