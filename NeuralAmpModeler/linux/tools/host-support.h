@@ -23,6 +23,7 @@
 #pragma once
 
 #include <dlfcn.h>
+#include <unistd.h>
 
 #include <chrono>
 #include <cstdio>
@@ -45,6 +46,7 @@
 // anything the SDK brought in.
 #include <X11/Xatom.h>
 #include <X11/Xlib.h>
+#include <X11/Xutil.h>
 
 namespace volumlinux
 {
@@ -226,6 +228,30 @@ public:
                     InputOutput, DefaultVisual(mDisplay, screen), CWBackPixel | CWEventMask, &attrs);
 
     XStoreName(mDisplay, mWindow, title);
+
+    // What this window is, for whoever looks after the desktop. WM_CLASS is how a
+    // taskbar groups a window with its application and how a .desktop entry finds it
+    // again; _NET_WM_PID and WM_CLIENT_MACHINE are how the XDG desktop portal, asked
+    // to place a dialog against a window id, works out which process that window
+    // belongs to. The plug-in draws in a child of this window, so a dialog that is
+    // meant to land on the screen the user is looking at has to be traceable to it.
+    XClassHint classHint;
+    classHint.res_name = const_cast<char*>("volum");
+    classHint.res_class = const_cast<char*>("VoLum");
+    XSetClassHint(mDisplay, mWindow, &classHint);
+
+    const Atom xaNetWmPid = XInternAtom(mDisplay, "_NET_WM_PID", False);
+    const Atom xaWmClientMachine = XInternAtom(mDisplay, "WM_CLIENT_MACHINE", False);
+    const long pid = static_cast<long>(getpid());
+
+    XChangeProperty(mDisplay, mWindow, xaNetWmPid, XA_CARDINAL, 32, PropModeReplace, reinterpret_cast<const unsigned char*>(&pid), 1);
+
+    char hostname[256];
+    if (gethostname(hostname, sizeof(hostname)) == 0)
+    {
+      hostname[sizeof(hostname) - 1] = '\0';
+      XChangeProperty(mDisplay, mWindow, xaWmClientMachine, XA_STRING, 8, PropModeReplace, reinterpret_cast<const unsigned char*>(hostname), static_cast<int>(strlen(hostname)));
+    }
 
     mWmDelete = XInternAtom(mDisplay, "WM_DELETE_WINDOW", False);
     XSetWMProtocols(mDisplay, mWindow, &mWmDelete, 1);

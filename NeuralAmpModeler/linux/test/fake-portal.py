@@ -8,9 +8,10 @@ any request whose payload it cannot read. Marshalling a filter list (a(sa(us))) 
 a bytestring folder (ay) by hand is where the C++ side could go wrong silently:
 here it is an error.
 
-Usage: fake-portal.py [--cancel] [--legacy-rgb] [path1 path2 ...]
+Usage: fake-portal.py [--cancel] [--legacy-rgb] [--round-trip] [path1 path2 ...]
   --cancel      answer every request as "the user pressed Cancel" (exit code 1)
   --legacy-rgb  answer PickColor with the old "rgb" (ii) vardict entry
+  --round-trip  hand back, on the next open request, the file a save request produced
   path1 ...     URIs to answer an open request with (default: two sample files)
 """
 
@@ -91,6 +92,8 @@ class FakePortal:
         self.cancel = "--cancel" in argv
         self.legacy_rgb = "--legacy-rgb" in argv
         self.paths = [a for a in argv if not a.startswith("--")] or DEFAULT_OPEN
+        self.saved = None  # what a SaveFile produced in this run
+        self.round_trip = "--round-trip" in argv
         self.loop = GLib.MainLoop()
         self.failed = False
 
@@ -110,7 +113,7 @@ class FakePortal:
             return
 
         # What the request carried, spelled out for the shell to check.
-        print(self.describe(method, title, options), file=sys.stderr)
+        print(self.describe(method, title, options, parent_window), file=sys.stderr)
 
         # Same spelling the real portal uses: a bus name inside an object path loses
         # its colon and its dots. ":1.7/volum1" would not be a path at all.
@@ -148,6 +151,11 @@ class FakePortal:
 
     def answer(self, method, options):
         """The URIs this desktop would hand back, after seeing what was asked."""
+        if method == "OpenFile" and self.saved and self.round_trip:
+            # An export followed by an import: the second request gets the file the
+            # first one produced, which is what makes the round trip mean something.
+            return [uri(self.saved)]
+
         if method != "SaveFile":
             return [uri(FAKE_FOLDER)] if options.get("directory") is not None else self.paths
 
@@ -156,7 +164,9 @@ class FakePortal:
         folder = options.get("current_folder")
         path = bytestring(folder).decode() if folder is not None else FAKE_FOLDER
         name = options.get("current_name") or "choisi pack.volumpack"
-        return [uri(path + "/" + name)]
+        saved = path + "/" + name
+        self.saved = saved
+        return [uri(saved)]
 
     # --- what the client sent us -------------------------------------------
 
@@ -238,12 +248,13 @@ class FakePortal:
                 if not isinstance(pattern, (tuple, list)) or len(pattern) != 2 or not isinstance(pattern[1], str):
                     raise ValueError("filter %r carries %r, not a (priority, pattern) pair" % (name, pattern))
 
-    def describe(self, method, title, options):
+    def describe(self, method, title, options, parent_window=""):
         """One line per request, for the shell to assert on."""
         folder = options.get("current_folder")
         filters = options.get("filters")
-        return "request %s title=%r multiple=%s directory=%s folder=%s name=%s filters=%s" % (
+        return "request %s parent=%s title=%r multiple=%s directory=%s folder=%s name=%s filters=%s" % (
             method,
+            parent_window or "-",
             title,
             options.get("multiple") is True,
             options.get("directory") is True,

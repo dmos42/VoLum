@@ -395,11 +395,17 @@ Two things a dialog like this needs, and a plug-in does not normally have:
   own, pumps that one until the answer arrives, and never turns the gears of the host's
   event loop. This blocks the UI thread for as long as the person browses folders, which is
   what a modal dialog does on every other platform; the audio thread is not involved.
-* **a window to be put against.** `x11:0x…` is offered only when the editor is a top-level
-  window of its own (`volum-app`, the probe). Embedded in a DAW the request goes out with no
-  parent window and the desktop places the dialog where it likes. A portal that rejects a
-  request over that window gets the same request again without it: losing the link between
-  two windows is better than losing the dialog.
+* **a window to be put against.** A plug-in's window is a child of somebody else's —
+  a DAW's container, or the window `volum-app` makes to hold it — so the id handed to the
+  portal is found by climbing: the first ancestor that claims this process through
+  `_NET_WM_PID`, the only X11 property that says such a thing. In a DAW that is the DAW's
+  own top-level, which is the window the user was looking at, and the dialog raises and
+  dies with it. When nothing claims us — a host that publishes no pid — the request goes
+  out with no parent window and the desktop places it where it likes. A portal that
+  rejects a request over that window gets the same request again without it: losing the
+  link between two windows is better than losing the dialog. The hosts publish those same
+  properties, plus `WM_CLASS`, on the windows they create (`tools/host-support.h`), which
+  is also what lets a desktop entry and a taskbar find the standalone again.
 
 Clicking a portal cannot be automated, so the protocol is checked against a scripted one:
 
