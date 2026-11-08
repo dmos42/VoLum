@@ -37,6 +37,26 @@ find_package(X11 REQUIRED)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
+# libatomic. Two 64-bit atomics in the code we link resolve to __atomic_store/__atomic_load
+# libcalls rather than inline instructions. Fedora's GCC adds -latomic to the link line by
+# itself, so the bundle links clean here; GCC on the Ubuntu runners does not, the .so is still
+# produced (a shared library tolerates undefined symbols) and the failure only surfaces when a
+# host dlopen()s it: "undefined symbol: __atomic_store".
+#
+# Link it explicitly whenever the toolchain provides the library. Probing for the atomic call
+# itself is no good - the compiler resolves a known-size one inline and reports success.
+# -latomic is resolved from the compiler's own directories, which is why this cannot use
+# find_library: on Fedora only libatomic.so.1 is in the loader path, the .so the linker needs
+# sits under /usr/lib/gcc, and the search would return NOTFOUND.
+include(CheckCXXSourceCompiles)
+set(CMAKE_REQUIRED_QUIET TRUE)
+set(CMAKE_REQUIRED_LIBRARIES atomic)
+check_cxx_source_compiles("int main() { return 0; }" VOLUM_HAS_LIBATOMIC)
+set(CMAKE_REQUIRED_LIBRARIES)
+if(VOLUM_HAS_LIBATOMIC)
+  set(VOLUM_LIBATOMIC atomic)
+endif()
+
 # Steinberg layout inside the bundle: <name>.vst3/Contents/<arch>/module.so
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
   set(VOLUM_ARCH_DIR "aarch64-linux")
@@ -205,6 +225,7 @@ target_link_libraries(volum-vst3 PRIVATE
   X11::X11
   Threads::Threads
   ${CMAKE_DL_LIBS}
+  ${VOLUM_LIBATOMIC}
 )
 
 # ---------------------------------------------------------------------------
@@ -272,7 +293,7 @@ if(VOLUM_BUILD_PROBE)
 
   target_compile_definitions(volum-vst3-probe PRIVATE RELEASE $<$<NOT:$<CONFIG:Debug>>:NDEBUG>)
   target_include_directories(volum-vst3-probe PRIVATE "${VST3_SDK}")
-  target_link_libraries(volum-vst3-probe PRIVATE X11::X11 ${CMAKE_DL_LIBS})
+  target_link_libraries(volum-vst3-probe PRIVATE X11::X11 ${CMAKE_DL_LIBS} ${VOLUM_LIBATOMIC})
   target_compile_features(volum-vst3-probe PRIVATE cxx_std_17)
 
   set_target_properties(volum-vst3-probe PROPERTIES

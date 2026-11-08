@@ -56,7 +56,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            ninja-build xvfb libx11-dev libgl1-mesa-dev libglu1-mesa-dev
+            ninja-build xvfb libx11-dev libgl1-mesa-dev libglu1-mesa-dev libatomic1
         shell: bash
 
       - name: Configure

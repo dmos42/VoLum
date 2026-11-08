@@ -37,7 +37,16 @@ sudo dnf install @development-tools cmake ninja-build clang \
 
 Debian/Ubuntu names, for anyone who ports the CI later — not verified on a Debian box:
 `build-essential cmake ninja-build libx11-dev libgl1-mesa-dev libfreetype-dev
-libxcursor-dev libxcb-util-dev libxcb-image0-dev libxcb-icccm4-dev libxcb-cursor-dev xvfb`.
+libxcursor-dev libxcb-util-dev libxcb-image0-dev libxcb-icccm4-dev libxcb-cursor-dev
+libatomic1 xvfb`.
+
+`libatomic1` matters: two 64-bit atomics compile to `__atomic_store`/`__atomic_load` libcalls,
+and GCC below 14 does not add `-latomic` on its own. A shared library links fine with an
+undefined symbol, so the build stays green and the failure appears when a DAW loads the
+bundle — `dlopen ... undefined symbol: __atomic_store`. The CMake project tests that
+`-latomic` links and adds it when it does, so Fedora (where GCC passes it for you) and Ubuntu
+(where it does not) both work. It cannot use `find_library`: on Fedora the `.so` the linker
+needs is under `/usr/lib/gcc`, not in the loader path, so the search returns NOTFOUND.
 
 The VST3 SDK is a vendored dependency of iPlug 2, not a submodule commit you can check out.
 If `iPlug2/Dependencies/IPlug/VST3_SDK` is empty, the script clones it into the **current**
