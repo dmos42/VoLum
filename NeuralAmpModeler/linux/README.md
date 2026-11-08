@@ -130,6 +130,22 @@ bothers you.
 * **Reaper** — Options → Preferences → Plug-ins → VST: add `~/.vst3` to the VST3 path list.
 * **Carla / Ardour / Qtractor / any other VST3 host** — point the plug-in path at `~/.vst3`.
 
+### The host's audio engine on a PipeWire desktop
+
+Finding the module is only half of it; the host also has to reach the audio interface, and on a
+PipeWire desktop two of Carla's engines cannot:
+
+* **ALSA** — PipeWire owns the card, so opening it fails. `arecord -D hw:3,0` gives the same
+  answer, `Périphérique ou ressource occupé` / `Device or resource busy`.
+* **PulseAudio** — the engine Carla picks by default. It only offers playback devices, so an
+  instrument attached to the interface never appears as an input at all.
+* **JACK** — the one that works: `pipewire-jack` answers that name, Carla joins the PipeWire
+  graph, and the interface's own capture ports become Carla's inputs.
+
+Keep Carla's buffer size equal to the quantum PipeWire hands out. With Carla asking for 512 on a
+PipeWire running at 1024 the log fills with `Carla assertion failure: "nframes ==
+pData->bufferSize" ... v1 512, v2 1024` (`CarlaEngineJack.cpp:2857`); setting 1024 silences it.
+
 **Flatpak hosts cannot see `~/.vst3`** — the sandbox hides your home directory. Grant the
 folder to the app (per user, reversible):
 
