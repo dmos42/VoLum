@@ -40,11 +40,17 @@ Debian/Ubuntu names, for anyone who ports the CI later — not verified on a Deb
 libxcursor-dev libxcb-util-dev libxcb-image0-dev libxcb-icccm4-dev libxcb-cursor-dev xvfb`.
 
 The VST3 SDK is a vendored dependency of iPlug 2, not a submodule commit you can check out.
-If `iPlug2/Dependencies/IPlug/VST3_SDK` is empty:
+If `iPlug2/Dependencies/IPlug/VST3_SDK` is empty, the script clones it into the **current**
+directory, so run it from its own folder:
 
 ```bash
-bash iPlug2/Dependencies/IPlug/download-vst3-sdk.sh
+cd iPlug2/Dependencies/IPlug && bash download-vst3-sdk.sh
 ```
+
+It deletes the SDK's own `.git` at the end, so its last line (`git checkout README.md`, which
+restores the one file iPlug 2 does track in that directory) is resolved against the
+*enclosing* repository. That only works inside `iPlug2/Dependencies/IPlug`; run it from the
+repo root and the SDK lands at `./VST3_SDK` and the checkout fails.
 
 ## Build
 

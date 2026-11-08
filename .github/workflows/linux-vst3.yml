@@ -44,8 +44,12 @@ jobs:
 
       - name: Download the VST3 SDK
         # Not a submodule: iPlug 2 tracks it as a directory, so the SDK has to be fetched
-        # (same step the Windows and macOS jobs do through their project files).
-        run: bash iPlug2/Dependencies/IPlug/download-vst3-sdk.sh
+        # (same step the Windows and macOS jobs do through their project files). The script
+        # clones into $PWD/VST3_SDK and finishes with `git checkout README.md`, so it has to
+        # run from the folder that holds it - from the repo root it drops the SDK at the
+        # wrong path and then fails with "pathspec 'README.md' did not match".
+        working-directory: iPlug2/Dependencies/IPlug
+        run: bash download-vst3-sdk.sh
         shell: bash
 
       - name: Install X11 and OpenGL development files
