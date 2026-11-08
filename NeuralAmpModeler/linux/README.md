@@ -24,6 +24,15 @@ each), and the order to pick them up in. The iPlug 2 half of the port lives on
 [`dmos42/iPlug2@volum/linux-port`](https://github.com/dmos42/iPlug2/tree/volum/linux-port),
 which is what `.gitmodules` resolves.
 
+![The editor as the Linux build draws it](volum-editor-x11.png)
+
+Captured headless by the probe harness (`VOLUM_LINUX_CAPTURE` under Xvfb) at 900 x 600: amp
+view, rig list, the Pre and Post pedalboards, the header buttons. Fonts, icons, gradients and
+the pedal artwork all come through NanoVG, so this is
+[`IGraphicsLinux.cpp`](../../iPlug2/IGraphics/Platforms/IGraphicsLinux.cpp) doing on X11 + GLX
+what the macOS and Windows backends do. What a still cannot show is the file picker and the
+message box that do nothing yet — see [Limitations](#limitations).
+
 ## Requirements
 
 Fedora 44 (what the port was developed on). Everything is in the repositories:
