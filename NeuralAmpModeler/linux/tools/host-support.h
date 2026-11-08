@@ -281,6 +281,22 @@ public:
   bool embedded() const { return mEmbedded; }
   bool closed() const { return mClosed; }
 
+  /** Give the embedded editor a new size from the host side, which is what a DAW does with the
+   * container it put the plug-in in: the plug-in receives a ConfigureNotify for a window whose
+   * size it does not own. */
+  bool resizeChild(unsigned int width, unsigned int height)
+  {
+    if (!mDisplay || !mChild)
+      return false;
+
+    XResizeWindow(mDisplay, mChild, width, height);
+    XSync(mDisplay, False);
+
+    printf("  [hote] fenetre du plugin portee a %u x %u\n", width, height);
+
+    return true;
+  }
+
   void close()
   {
     if (mDisplay)
@@ -611,6 +627,7 @@ public:
   void pumpEvents() { mWindow.pumpEvents(); }
   bool closed() const { return mWindow.closed(); }
   bool embedded() const { return mWindow.embedded(); }
+  bool resizeEmbedded(unsigned int width, unsigned int height) { return mWindow.resizeChild(width, height); }
 
   void sizeReport(int afterSeconds)
   {

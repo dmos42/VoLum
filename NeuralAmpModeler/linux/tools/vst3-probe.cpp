@@ -17,10 +17,12 @@
                     [--param IDX:VAL]  set a normalized parameter before running
                     [--ui]             also open the editor inside a probe window
                     [--uiseconds N]    how long to keep the editor open (default 6)
+                    [--resize SEC:WxH] resize the editor from the host side after SEC seconds,
+                                       repeat the option to try several sizes, one per step
                     [--ui-only]        skip the audio run
 
  Exit codes: 0 ok, 2 cannot load, 3 no factory/class, 4 could not instantiate,
- 5 processing failed, 6 output stayed silent.
+ 5 processing failed, 6 output stayed silent, 7 the editor window did not survive a resize.
 
  ==============================================================================
 */
@@ -41,6 +43,14 @@ using namespace volumlinux;
 namespace
 {
 
+/** One host-side size change, asked for by --resize SEC:WxH. */
+struct ResizeStep
+{
+  double at = 0.0; // seconds after the editor opened
+  int w = 0;
+  int h = 0;
+};
+
 struct Options
 {
   std::string path;
@@ -49,6 +59,7 @@ struct Options
   bool audio = true;
   bool ui = false;
   int uiSeconds = 6;
+  std::vector<ResizeStep> resizes; // sizes a DAW might give the editor, in command line order
   int maxParams = 250;
   std::vector<std::pair<int, double>> params; // parameter index -> normalized value
 };
@@ -78,6 +89,21 @@ bool parseArgs(int argc, char** argv, Options& opt)
       opt.rate = std::atof(v);
     else if (const char* v = optionValue(arg, "--uiseconds", i, argc, argv))
       opt.uiSeconds = std::atoi(v);
+    else if (const char* v = optionValue(arg, "--resize", i, argc, argv))
+    {
+      // SEC:WxH, repeatable. A DAW walks the editor through several sizes while the user drags
+      // the container, and each one is a chance for the plug-in to touch OpenGL at a bad time.
+      const char* colon = std::strchr(v, ':');
+      const char* cross = colon ? std::strchr(colon, 'x') : nullptr;
+
+      if (!colon || !cross)
+      {
+        fprintf(stderr, "--resize attend SECONDES:LARGEURxHAUTEUR\n");
+        return false;
+      }
+
+      opt.resizes.push_back({std::atof(v), std::atoi(colon + 1), std::atoi(cross + 1)});
+    }
     else if (const char* v = optionValue(arg, "--param", i, argc, argv))
     {
       const int idx = std::atoi(v);
@@ -271,7 +297,37 @@ int main(int argc, char** argv)
       printf("impossible d'ouvrir une fenetre X11 pour l'editeur\n");
     else if (editorStatus == 0)
     {
-      editor.pump(opt.uiSeconds);
+      // A DAW sizes the editor inside its own container, between two of the plug-in's frames:
+      // the plug-in only ever sees a ConfigureNotify for a window whose size it does not own.
+      // Walk the window through the sizes given on the command line, and check it is still
+      // there afterwards - a resize is where a plug-in reaches for OpenGL while its window
+      // thread has no context current.
+      double clock = 0.0;
+
+      for (const ResizeStep& step : opt.resizes)
+      {
+        editor.pump(step.at > clock ? step.at - clock : 0.0);
+        clock = step.at;
+
+        if (!editor.resizeEmbedded(static_cast<unsigned>(step.w), static_cast<unsigned>(step.h)))
+          printf("[hote] pas de fenetre de plugin a redimensionner a %.1f s\n", step.at);
+        else if (editor.closed())
+          printf("[hote] editeur abandonne au redimensionnement a %.1f s\n", step.at);
+        else
+          printf("[hote] editeur toujours present apres %d x %d\n", step.w, step.h);
+
+        if (!editor.closed())
+          continue;
+
+        if (exitCode == kLoadOk)
+          exitCode = 7;
+
+        break;
+      }
+
+      if (!editor.closed())
+        editor.pump(opt.uiSeconds > clock ? opt.uiSeconds - clock : 0.0);
+
       editor.sizeReport(opt.uiSeconds);
       editor.close();
     }
