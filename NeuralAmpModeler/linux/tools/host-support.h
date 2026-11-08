@@ -297,6 +297,46 @@ public:
     return true;
   }
 
+  /** Press and release inside the embedded editor, from the host side. A DAW hands the
+   *  plug-in pointer events that came off a real device; a headless harness has none,
+   *  so the pair is posted to the child window the way the X server would post them.
+   *  The plug-in reads them off its own connection and has no reason to care that no
+   *  mouse was involved - which is what makes "press the button that opens a file
+   *  chooser" something a script can do at all. */
+  bool clickChild(int x, int y)
+  {
+    if (!mDisplay || !mChild)
+      return false;
+
+    XEvent press;
+    std::memset(&press, 0, sizeof(press));
+    press.type = ButtonPress;
+    press.xbutton.display = mDisplay;
+    press.xbutton.window = mChild;
+    press.xbutton.subwindow = mChild;
+    press.xbutton.root = RootWindow(mDisplay, DefaultScreen(mDisplay));
+    press.xbutton.time = CurrentTime;
+    press.xbutton.x = x;
+    press.xbutton.y = y;
+    press.xbutton.same_screen = True;
+    press.xbutton.button = Button1;
+
+    XEvent release = press;
+    release.type = ButtonRelease;
+
+    // The mask is what the target window asked to be shown: without ButtonPressMask
+    // in the request the server drops the event before the plug-in ever hears of it.
+    if (XSendEvent(mDisplay, mChild, False, ButtonPressMask, &press) == 0)
+      return false;
+
+    XSendEvent(mDisplay, mChild, False, ButtonReleaseMask, &release);
+    XFlush(mDisplay);
+
+    printf("  [hote] clic %d x %d envoye dans la fenetre du plugin\n", x, y);
+
+    return true;
+  }
+
   void close()
   {
     if (mDisplay)
@@ -628,6 +668,7 @@ public:
   bool closed() const { return mWindow.closed(); }
   bool embedded() const { return mWindow.embedded(); }
   bool resizeEmbedded(unsigned int width, unsigned int height) { return mWindow.resizeChild(width, height); }
+  bool clickEmbedded(int x, int y) { return mWindow.clickChild(x, y); }
 
   void sizeReport(int afterSeconds)
   {

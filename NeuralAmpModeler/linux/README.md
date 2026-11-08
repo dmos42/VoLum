@@ -319,7 +319,17 @@ VOLUM_LINUX_CAPTURE=/tmp/volum Xvfb ... ; convert /tmp/volum.2.ppm /tmp/volum.2.
 # resize the embedded window the way a DAW does, then check the editor is still alive
 ./build/linux/volum-vst3-probe <module> --ui-only --ui --uiseconds 6 \
   --resize 1:900x700 --resize 2:640x480 --resize 3:1x1
+
+# press a mouse button inside the editor, with no mouse: the host posts the press and
+# the release to the plug-in's window, which reads them off its own connection
+./build/linux/volum-vst3-probe <module> --ui-only --uiseconds 4 --click 1.5:800:434
 ```
+
+Sizes and clicks share one clock, sorted by when they are asked for: `--resize 1:900x700
+--click 1.5:800:434 --resize 2:1x1` presses in the middle of the sizing, which is what a DAW
+does and what a plug-in has to survive. X and Y are pixels in the plug-in window's own
+space - the same space the captured PPM frames are drawn in, so a coordinate read off a
+screenshot is a coordinate to click.
 
 Other flags: `--seconds N`, `--rate R`, `--param IDX:VAL` (normalized), `--ui-only`,
 `--resize SEC:WxH` (repeatable). Exit code 0 means the module loaded, processed without a

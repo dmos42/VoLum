@@ -19,6 +19,9 @@
                     [--uiseconds N]    how long to keep the editor open (default 6)
                     [--resize SEC:WxH] resize the editor from the host side after SEC seconds,
                                        repeat the option to try several sizes, one per step
+                    [--click SEC:X:Y]  press and release the mouse at X:Y inside the
+                                       editor window after SEC seconds, no real mouse
+                                       involved
                     [--ui-only]        skip the audio run
 
  Exit codes: 0 ok, 2 cannot load, 3 no factory/class, 4 could not instantiate,
@@ -29,6 +32,7 @@
 
 #include "host-support.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -43,12 +47,18 @@ using namespace volumlinux;
 namespace
 {
 
-/** One host-side size change, asked for by --resize SEC:WxH. */
-struct ResizeStep
+/** One thing the host does inside the editor window, SEC seconds after it opened: a
+ *  size change (--resize) or a press-and-release (--click). One list because they
+ *  share a timeline, and the order is part of the test - a DAW clicks in the window
+ *  it has just sized, and a click into an unsized window is a different situation.
+ *  `a`/`b` are a width and a height for a resize, an x and a y for a click, in the
+ *  plug-in window's own coordinates. */
+struct UIStep
 {
-  double at = 0.0; // seconds after the editor opened
-  int w = 0;
-  int h = 0;
+  double at = 0.0;
+  bool resize = false;
+  int a = 0;
+  int b = 0;
 };
 
 struct Options
@@ -59,7 +69,7 @@ struct Options
   bool audio = true;
   bool ui = false;
   int uiSeconds = 6;
-  std::vector<ResizeStep> resizes; // sizes a DAW might give the editor, in command line order
+  std::vector<UIStep> steps; // sizes and clicks the host sends, in the order asked for
   int maxParams = 250;
   std::vector<std::pair<int, double>> params; // parameter index -> normalized value
 };
@@ -102,7 +112,23 @@ bool parseArgs(int argc, char** argv, Options& opt)
         return false;
       }
 
-      opt.resizes.push_back({std::atof(v), std::atoi(colon + 1), std::atoi(cross + 1)});
+      opt.steps.push_back({std::atof(v), true, std::atoi(colon + 1), std::atoi(cross + 1)});
+    }
+    else if (const char* v = optionValue(arg, "--click", i, argc, argv))
+    {
+      // SEC:X:Y, repeatable. No mouse is involved: the host posts the press and the release
+      // to the plug-in's window, which reads them off its own connection like any other
+      // event. This is how a button that opens a file chooser can be pressed by a script.
+      const char* first = std::strchr(v, ':');
+      const char* second = first ? std::strchr(first + 1, ':') : nullptr;
+
+      if (!first || !second)
+      {
+        fprintf(stderr, "--click attend SECONDES:X:Y\n");
+        return false;
+      }
+
+      opt.steps.push_back({std::atof(v), false, std::atoi(first + 1), std::atoi(second + 1)});
     }
     else if (const char* v = optionValue(arg, "--param", i, argc, argv))
     {
@@ -301,20 +327,36 @@ int main(int argc, char** argv)
       // the plug-in only ever sees a ConfigureNotify for a window whose size it does not own.
       // Walk the window through the sizes given on the command line, and check it is still
       // there afterwards - a resize is where a plug-in reaches for OpenGL while its window
-      // thread has no context current.
+      // thread has no context current. Clicks ride the same clock: they are what gets a
+      // plug-in to open a dialog, a folder chooser, a preset load.
+      std::stable_sort(
+        opt.steps.begin(), opt.steps.end(), [](const UIStep& one, const UIStep& other) { return one.at < other.at; });
+
       double clock = 0.0;
 
-      for (const ResizeStep& step : opt.resizes)
+      for (const UIStep& step : opt.steps)
       {
         editor.pump(step.at > clock ? step.at - clock : 0.0);
         clock = step.at;
 
-        if (!editor.resizeEmbedded(static_cast<unsigned>(step.w), static_cast<unsigned>(step.h)))
-          printf("[hote] pas de fenetre de plugin a redimensionner a %.1f s\n", step.at);
-        else if (editor.closed())
-          printf("[hote] editeur abandonne au redimensionnement a %.1f s\n", step.at);
+        if (step.resize)
+        {
+          if (!editor.resizeEmbedded(static_cast<unsigned>(step.a), static_cast<unsigned>(step.b)))
+            printf("[hote] pas de fenetre de plugin a redimensionner a %.1f s\n", step.at);
+          else if (editor.closed())
+            printf("[hote] editeur abandonne au redimensionnement a %.1f s\n", step.at);
+          else
+            printf("[hote] editeur toujours present apres %d x %d\n", step.a, step.b);
+        }
         else
-          printf("[hote] editeur toujours present apres %d x %d\n", step.w, step.h);
+        {
+          if (!editor.clickEmbedded(step.a, step.b))
+            printf("[hote] pas de fenetre de plugin pour un clic a %.1f s\n", step.at);
+
+          // Whatever the click was for, the editor has to still be there when it is over:
+          // a plug-in that takes a SIGSEGV inside a file dialog never comes back to report it.
+          editor.pump(0.25);
+        }
 
         if (!editor.closed())
           continue;
