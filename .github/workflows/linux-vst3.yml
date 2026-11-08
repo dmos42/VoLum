@@ -1,0 +1,90 @@
+name: Linux VST3
+
+# The Linux port of the plug-in (NeuralAmpModeler/linux). CI.yml already builds the NAM
+# core on ubuntu, but nothing there produces a loadable VoLum.vst3, so a broken platform
+# layer goes unnoticed. This job builds the VST3 bundle and runs it through the headless
+# probe host (audio graph + editor window on Xvfb) - the closest thing to "a DAW loaded
+# it" that is possible without a desktop session.
+#
+# Deliberately not triggered by dev/main yet: the port is on its own branch until upstream
+# decides what to do with it (guitarlum/VoLum#17).
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - volum/linux-port
+      - linux/**
+  pull_request:
+    branches:
+      - volum/linux-port
+      - dev
+      - main
+
+concurrency:
+  group: linux-vst3-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DEBIAN_FRONTEND: noninteractive
+
+jobs:
+  linux_vst3:
+    name: Linux VST3 (build + headless probe)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Check out submodules
+        run: bash NeuralAmpModeler/scripts/checkout-submodules.sh
+        shell: bash
+
+      - name: Download the VST3 SDK
+        # Not a submodule: iPlug 2 tracks it as a directory, so the SDK has to be fetched
+        # (same step the Windows and macOS jobs do through their project files).
+        run: bash iPlug2/Dependencies/IPlug/download-vst3-sdk.sh
+        shell: bash
+
+      - name: Install X11 and OpenGL development files
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build xvfb libx11-dev libgl1-mesa-dev libglu1-mesa-dev
+        shell: bash
+
+      - name: Configure
+        # The bundled rigs are 249 .nam files (~77 MB) and are not needed to prove the
+        # plug-in loads and processes sound, so the CI bundle is built without them.
+        run: |
+          cmake -S NeuralAmpModeler/linux -B build/linux -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DVOLUM_COPY_RIGS=OFF
+        shell: bash
+
+      - name: Build
+        run: cmake --build build/linux
+        shell: bash
+
+      - name: Probe the audio path
+        run: |
+          ./build/linux/volum-vst3-probe \
+            build/linux/VoLum.vst3/Contents/x86_64-linux/VoLum.vst3.so --seconds 2
+        shell: bash
+
+      - name: Probe the editor window on Xvfb
+        run: |
+          xvfb-run -a -s "-screen 0 1440x900x24" \
+            ./build/linux/volum-vst3-probe \
+            build/linux/VoLum.vst3/Contents/x86_64-linux/VoLum.vst3.so \
+            --ui --seconds 1 --uiseconds 3
+        shell: bash
+
+      - name: Upload the bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoLum-linux-vst3
+          path: build/linux/VoLum.vst3
+          if-no-files-found: error
+          retention-days: 14

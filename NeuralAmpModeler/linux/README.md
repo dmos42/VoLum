@@ -120,6 +120,11 @@ Other flags: `--seconds N`, `--rate R`, `--param IDX:VAL` (normalized), `--ui-on
 code 0 means the module loaded, processed without a crash and, with `--ui`, that the editor
 opened and closed cleanly.
 
+CI runs exactly those two probe invocations on `ubuntu-latest`:
+`.github/workflows/linux-vst3.yml` installs the X11/GL headers, configures this folder with
+`-DVOLUM_COPY_RIGS=OFF`, builds, probes audio then the editor under `xvfb-run`, and uploads
+the bundle as an artifact.
+
 ## Files VoLum writes on Linux
 
 | path | contents |
