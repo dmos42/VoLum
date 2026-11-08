@@ -7,6 +7,8 @@ equivalent of `NeuralAmpModeler/projects/NeuralAmpModeler-vst3.vcxproj`: a CMake
 that builds the **VST3** plug-in natively, with the iPlug 2 graphics backend implemented for
 X11 + GLX.
 
+[![Linux VST3](https://github.com/dmos42/VoLum/actions/workflows/linux-vst3.yml/badge.svg?branch=volum%2Flinux-port)](https://github.com/dmos42/VoLum/actions/workflows/linux-vst3.yml?query=branch%3Avolum%2Flinux-port)
+
 Status of the port: the audio path, the VST3 wrapper, the editor window, mouse/keyboard
 input, in-app menus and text entry, clipboard, cursors and fonts all work. The file / folder
 / colour dialogs, the native message box and the standalone application are still missing —
@@ -14,6 +16,13 @@ see [Limitations](#limitations). Two command-line hosts are built alongside the 
 probe that answers "does the module load and make sound?", and
 [`volum-live`](#running-volum-without-a-daw), which plays the plug-in straight against ALSA
 with its own window, no DAW in the way.
+
+The work happens on `volum/linux-port`, which is that repository's default branch:
+[`dmos42/VoLum`](https://github.com/dmos42/VoLum). [Issue #8](https://github.com/dmos42/VoLum/issues/8)
+is the map — what is already covered by a test, the seven pieces that are missing (one issue
+each), and the order to pick them up in. The iPlug 2 half of the port lives on
+[`dmos42/iPlug2@volum/linux-port`](https://github.com/dmos42/iPlug2/tree/volum/linux-port),
+which is what `.gitmodules` resolves.
 
 ## Requirements
 
@@ -260,17 +269,28 @@ DISPLAY=:99 ./build/linux/volum-vst3-probe <module> --ui
 
 # dump three frames of the editor as PPM (frame 20, 60, 120) for a visual check
 VOLUM_LINUX_CAPTURE=/tmp/volum Xvfb ... ; convert /tmp/volum.2.ppm /tmp/volum.2.png
+
+# resize the embedded window the way a DAW does, then check the editor is still alive
+./build/linux/volum-vst3-probe <module> --ui-only --ui --uiseconds 6 \
+  --resize 1:900x700 --resize 2:640x480 --resize 3:1x1
 ```
 
-Other flags: `--seconds N`, `--rate R`, `--param IDX:VAL` (normalized), `--ui-only`. Exit
-code 0 means the module loaded, processed without a crash and, with `--ui`, that the editor
-opened and closed cleanly.
+Other flags: `--seconds N`, `--rate R`, `--param IDX:VAL` (normalized), `--ui-only`,
+`--resize SEC:WxH` (repeatable). Exit code 0 means the module loaded, processed without a
+crash and, with `--ui`, that the editor opened and closed cleanly.
+
+`--resize` exists because a crash was invisible without it. A DAW sizes the editor inside its
+own container, so the plug-in only ever sees a ConfigureNotify for a window whose size it does
+not own; Carla took a SIGSEGV on the first such size, in `IGraphicsNanoVG::EndFrame()` reading
+a framebuffer that was never created because the GLX context had been released between frames.
+Leaving the window alone proved nothing. Sizes worth asking for: the one the user drags to, a
+tiling compositor's 1x1, and something bigger than the screen.
 
 CI runs those probes and one live-host run on `ubuntu-latest`:
 `.github/workflows/linux-vst3.yml` installs the X11/GL and `libasound2-dev` headers,
 configures this folder with `-DVOLUM_COPY_RIGS=OFF`, builds, probes audio then the editor
-under `xvfb-run`, plays a generated tone WAV through `volum-live` in its card-free file
-mode, and uploads the bundle as an artifact.
+under `xvfb-run`, walks the editor through five host-side sizes, plays a generated tone WAV
+through `volum-live` in its card-free file mode, and uploads the bundle as an artifact.
 
 ## Files VoLum writes on Linux
 

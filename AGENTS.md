@@ -8,6 +8,7 @@ Keep this file as a small routing index. Detailed guidance lives in scoped Curso
 - Vendored/submodule code: `iPlug2/`, `NeuralAmpModelerCore/`, `eigen/`. Avoid edits unless the task explicitly targets them.
 - `AudioDSPTools/` is a submodule, but VoLum actively depends on DSP there.
 - Top-level `rigs/` is the dev source of bundled amp profiles. Shipped artifacts rename it to `VoLumRigs/`.
+- Linux port: `NeuralAmpModeler/linux/` (CMake, VST3 only) plus the graphics backend on the `iPlug2` fork branch `volum/linux-port`. Windows/macOS build through Visual Studio/Xcode as before.
 
 ## Start Here
 
@@ -19,6 +20,7 @@ Rules below auto-attach on the files they own; you do not need to open them by h
 - C++/DSP/audio-chain work: `.cursor/rules/neural-amp-modeler-native.mdc`.
 - CI, installers, releases, artifacts: `.cursor/rules/volum-release-packaging.mdc` and skill `release-manager`.
 - Build/CI failures: skill `native-build-debugger`.
+- Linux work: `NeuralAmpModeler/linux/README.md` (build, hosts, host quirks, limitations). The open items are issues on `dmos42/VoLum`, whose default branch is `volum/linux-port`; #8 is the index. Never bump the `iPlug2` pointer before pushing the commit on that fork.
 - Submodule or vendored code questions: `.cursor/rules/volum-submodules.mdc`.
 - Upstream sync with NAMCore or NeuralAmpModelerPlugin: skill `upstream-sync`.
 - Retraining bundled NAM captures to A2: skill `a2-training` (ops in `training/cloud/`).
@@ -59,3 +61,6 @@ Single-context. `CONTEXT.md` is a lazy glossary, not a spec. See
 - Watch/dispatch CI: `pwsh NeuralAmpModeler/scripts/ci-watch.ps1 -Ref <branch> [-Dispatch] [-NoWait]`
 - Conductor loop status: `pwsh NeuralAmpModeler/scripts/conductor-status.ps1 -Effort <slug>`
 - Format: `bash format.bash`
+- Linux VST3 build: `cd iPlug2/Dependencies/IPlug && bash download-vst3-sdk.sh`, then `cmake -S NeuralAmpModeler/linux -B build/linux -G Ninja -DCMAKE_BUILD_TYPE=Release && cmake --build build/linux` (`-DVOLUM_FORTIFY=ON` compiles the way Ubuntu CI does; `-DVOLUM_COPY_RIGS=OFF` skips the 249 rigs)
+- Linux smoke: `./build/linux/volum-vst3-probe build/linux/VoLum.vst3/Contents/x86_64-linux/VoLum.vst3.so --ui --resize 1:900x700 --resize 2:1x1` (headless: prefix `xvfb-run -a`), and `./build/linux/volum-live` for ALSA in/out with the window; install with `cmake --install build/linux` (-> `~/.vst3`)
+- Linux CI: `.github/workflows/linux-vst3.yml`, on the `Linux VST3` job — `gh run list --repo dmos42/VoLum --branch volum/linux-port`
