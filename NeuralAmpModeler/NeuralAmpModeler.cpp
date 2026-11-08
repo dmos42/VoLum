@@ -1271,7 +1271,10 @@ void NeuralAmpModeler::OnIdle()
   {
     if (auto* pGraphics = GetUI())
     {
-      static_cast<NAMSettingsPageControl*>(pGraphics->GetControlWithTag(kCtrlTagSettingsBox))->ClearModelInfo();
+      // The editor can exist before its controls are built (and after they are torn down),
+      // so never assume a tag lookup succeeds.
+      if (auto* settings = static_cast<NAMSettingsPageControl*>(pGraphics->GetControlWithTag(kCtrlTagSettingsBox)))
+        settings->ClearModelInfo();
       mModelCleared = false;
     }
   }
@@ -2742,17 +2745,33 @@ void NeuralAmpModeler::_UpdateControlsFromModel()
     modelInfo.outputCalibrationLevel.known = mModel->HasOutputLevel();
     modelInfo.outputCalibrationLevel.value = mModel->HasOutputLevel() ? mModel->GetOutputLevel() : 0.0;
 
+    // An editor can be open while its controls have not been created yet - a VST3 host may
+    // call createView() and attached() with idle ticks in between - so every tag lookup has
+    // to be checked before it is used.
     auto* settings = static_cast<NAMSettingsPageControl*>(pGraphics->GetControlWithTag(kCtrlTagSettingsBox));
+
+    if (!settings)
+      return;
+
     settings->SetModelInfo(modelInfo);
 
     const bool canCalibrateInput = mModel->HasInputLevel();
-    pGraphics->GetControlWithTag(kCtrlTagCalibrateInput)->SetDisabled(!canCalibrateInput);
-    pGraphics->GetControlWithTag(kCtrlTagInputCalibrationLevel)->SetDisabled(!canCalibrateInput);
+
+    if (auto* c = pGraphics->GetControlWithTag(kCtrlTagCalibrateInput))
+      c->SetDisabled(!canCalibrateInput);
+
+    if (auto* c = pGraphics->GetControlWithTag(kCtrlTagInputCalibrationLevel))
+      c->SetDisabled(!canCalibrateInput);
+
     settings->SetInputCalibrationAvailable(canCalibrateInput);
     {
       auto* c = static_cast<OutputModeControl*>(pGraphics->GetControlWithTag(kCtrlTagOutputMode));
-      c->SetNormalizedDisable(!mModel->HasLoudness());
-      c->SetCalibratedDisable(!mModel->HasOutputLevel());
+
+      if (c)
+      {
+        c->SetNormalizedDisable(!mModel->HasLoudness());
+        c->SetCalibratedDisable(!mModel->HasOutputLevel());
+      }
     }
   }
 }

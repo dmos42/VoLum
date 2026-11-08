@@ -13,6 +13,8 @@
 #elif defined(__APPLE__)
   #include <dlfcn.h>
   #include <mach-o/dyld.h>
+#elif defined(__linux__)
+  #include <dlfcn.h>
 #endif
 
 namespace volum
@@ -64,6 +66,76 @@ inline std::filesystem::path RegistryRigsRootFromInstaller()
   if (!legacyAmpete.empty())
     return legacyAmpete.parent_path();
   return {};
+}
+#endif
+
+#if defined(__linux__)
+// The folder VoLum owns on Linux. Everything VoLum writes lives here so the settings
+// files and the content store stay siblings, the way the comments below assume.
+// $XDG_CONFIG_HOME, or ~/.config when it is unset (the XDG base spec default).
+inline std::filesystem::path VolumUserConfigDir()
+{
+  namespace fs = std::filesystem;
+
+  if (const char* xdg = std::getenv("XDG_CONFIG_HOME"); xdg && *xdg)
+    return fs::path(xdg) / "VoLum";
+
+  if (const char* home = std::getenv("HOME"); home && *home)
+    return fs::path(home) / ".config" / "VoLum";
+
+  return {};
+}
+
+// Linux order: the VST3 bundle's own Resources folder first (that is where a packaged
+// VoLum.vst3 keeps its rigs), then the tree beside the module walking up to the repo's
+// rigs/ for a portable or dev build, then the per-user and system-wide install folders.
+inline std::vector<std::filesystem::path> LinuxRigsCandidates(const std::filesystem::path& moduleDir)
+{
+  namespace fs = std::filesystem;
+  std::vector<fs::path> candidates;
+
+  if (!moduleDir.empty())
+  {
+    // .../VoLum.vst3/Contents/<arch>/volum-vst3.so -> Contents/Resources/VoLumRigs
+    candidates.push_back(moduleDir.parent_path() / "Resources" / "VoLumRigs");
+    candidates.push_back(moduleDir.parent_path() / "Resources" / "rigs");
+    candidates.push_back(moduleDir / "VoLumRigs");
+    candidates.push_back(moduleDir / "rigs");
+
+    fs::path d = moduleDir;
+    for (int depth = 0; depth < 12; ++depth)
+    {
+      candidates.push_back(d / "VoLumRigs");
+      candidates.push_back(d / "rigs");
+      d = d.parent_path();
+    }
+  }
+
+  if (const char* home = std::getenv("HOME"); home && *home)
+  {
+    const fs::path homePath(home);
+    fs::path dataDir;
+
+    if (const char* xdg = std::getenv("XDG_DATA_HOME"); xdg && *xdg)
+      dataDir = fs::path(xdg);
+    else
+      dataDir = homePath / ".local" / "share";
+
+    for (const auto& base : {dataDir / "VoLum", homePath / ".vst3" / "VoLum.vst3" / "Contents" / "Resources"})
+    {
+      candidates.push_back(base / "VoLumRigs");
+      candidates.push_back(base / "rigs");
+    }
+  }
+
+  for (const char* prefix : {"/usr/local/share", "/usr/share", "/usr/local/lib", "/usr/lib", "/usr/lib64", "/usr/local/lib64"})
+  {
+    const fs::path base(prefix);
+    candidates.push_back(base / "VoLum" / "VoLumRigs");
+    candidates.push_back(base / "VoLum" / "rigs");
+  }
+
+  return candidates;
 }
 #endif
 
@@ -148,6 +220,16 @@ inline std::vector<std::filesystem::path> RigsRootCandidates()
         d = d.parent_path();
       }
     }
+  }
+#elif defined(__linux__)
+  {
+    fs::path moduleDir;
+    Dl_info info{};
+
+    if (dladdr(reinterpret_cast<const void*>(&RigsRootCandidates), &info) != 0 && info.dli_fname)
+      moduleDir = fs::weakly_canonical(fs::path(info.dli_fname)).parent_path();
+
+    candidates = LinuxRigsCandidates(moduleDir);
   }
 #endif
 
@@ -308,6 +390,11 @@ inline std::filesystem::path VolumUserSettingsFilePath()
   if (!home || !*home)
     return {};
   return fs::path(home) / "Library" / "Application Support" / "VoLum" / "volum-settings.json";
+#elif defined(__linux__)
+  const fs::path dir = VolumUserConfigDir();
+  if (dir.empty())
+    return {};
+  return dir / "volum-settings.json";
 #else
   (void)0;
   return {};
@@ -329,6 +416,11 @@ inline std::filesystem::path VolumUpdateStateFilePath()
   if (!home || !*home)
     return {};
   return fs::path(home) / "Library" / "Application Support" / "VoLum" / "volum-update-state.json";
+#elif defined(__linux__)
+  const fs::path dir = VolumUserConfigDir();
+  if (dir.empty())
+    return {};
+  return dir / "volum-update-state.json";
 #else
   (void)0;
   return {};
@@ -354,6 +446,11 @@ inline std::filesystem::path VolumContentDir()
   if (!home || !*home)
     return {};
   return fs::path(home) / "Library" / "Application Support" / "VoLum" / "content";
+#elif defined(__linux__)
+  const fs::path dir = VolumUserConfigDir();
+  if (dir.empty())
+    return {};
+  return dir / "content";
 #else
   (void)0;
   return {};
@@ -375,6 +472,11 @@ inline std::filesystem::path VolumDualAmpSettingsFilePath()
   if (!home || !*home)
     return {};
   return fs::path(home) / "Library" / "Application Support" / "VoLum" / "volum-dual-amp-settings.json";
+#elif defined(__linux__)
+  const fs::path dir = VolumUserConfigDir();
+  if (dir.empty())
+    return {};
+  return dir / "volum-dual-amp-settings.json";
 #else
   (void)0;
   return {};
@@ -395,6 +497,11 @@ inline std::filesystem::path VolumDiagLogFilePath()
   if (!home || !*home)
     return {};
   return fs::path(home) / "Library" / "Application Support" / "VoLum" / "volum.log";
+#elif defined(__linux__)
+  const fs::path dir = VolumUserConfigDir();
+  if (dir.empty())
+    return {};
+  return dir / "volum.log";
 #else
   (void)0;
   return {};

@@ -53,3 +53,6 @@ training/*.nam
 
 NeuralAmpModeler/ui-mockup/
 rigs/*/amp-pic-*
+
+# Linux CMake build tree (cmake -S NeuralAmpModeler/linux -B build/linux)
+/build/
