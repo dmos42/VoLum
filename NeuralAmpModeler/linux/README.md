@@ -182,6 +182,14 @@ Not implemented yet, each with a `TODO(linux)` at the site:
   `ITextEntryControl`), not by the toolkit.
 * Not covered: MIDI 2, multiple simultaneous instances tested under a real host, HiDPI
   fractional scaling, ARM (`aarch64-linux` is wired up in `CMakeLists.txt` but never built).
+* Binary portability is not handled yet. The module inherits the C library of the machine that
+  built it, and Fedora 44 (glibc 2.43) stamps even plain `sqrtf`/`atan2f`/`log10f` calls with
+  `GLIBC_2.43`. A host running on an older sandboxed runtime then refuses the file at `dlopen`
+  without saying why: Carla 2.5.10 Flatpak (runtime glibc 2.42) reports only
+  `No plugins found`. `libstdc++` is not the constraint (the module needs at most
+  `GLIBCXX_3.4.32`). Build anything you hand out on an older base — a Fedora 42 or Debian 12
+  container is enough — and check the ceiling with
+  `objdump -T .../VoLum.vst3.so | grep -o 'GLIBC_2\.[0-9]*' | sort -Vu | tail -1`. Issue #7.
 
 ## Relationship with upstream's own Linux work
 
