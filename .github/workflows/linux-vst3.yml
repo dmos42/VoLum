@@ -56,7 +56,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            ninja-build xvfb libx11-dev libgl1-mesa-dev libglu1-mesa-dev libatomic1
+            ninja-build xvfb libx11-dev libgl1-mesa-dev libglu1-mesa-dev libatomic1 libasound2-dev
         shell: bash
 
       - name: Configure
@@ -83,6 +83,27 @@ jobs:
             ./build/linux/volum-vst3-probe \
             build/linux/VoLum.vst3/Contents/x86_64-linux/VoLum.vst3.so \
             --ui --seconds 1 --uiseconds 3
+        shell: bash
+
+      - name: Run the live host over a file
+        # With a WAV in and a WAV out and no --out, volum-live never opens a sound card,
+        # so this covers the ALSA front-end, the WAV reader and the processing chain on a
+        # runner that has no audio device. A silent output makes the host exit 6.
+        run: |
+          python3 - <<'PY'
+          import math, struct, wave
+          with wave.open('/tmp/ci-tone.wav', 'wb') as wav:
+              wav.setnchannels(2)
+              wav.setsampwidth(2)
+              wav.setframerate(48000)
+              frames = bytearray()
+              for i in range(48000):
+                  value = int(12000 * math.sin(2 * math.pi * 220 * i / 48000))
+                  frames += struct.pack('<hh', value, value)
+              wav.writeframes(bytes(frames))
+          PY
+          ./build/linux/volum-live --in-file /tmp/ci-tone.wav --out-file /tmp/ci-out.wav --meter 0 --no-ui
+          test -s /tmp/ci-out.wav
         shell: bash
 
       - name: Upload the bundle
