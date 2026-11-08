@@ -242,8 +242,8 @@ Options worth knowing:
 | option | meaning |
 | --- | --- |
 | `--out DEV`, `--in DEV` | playback and capture devices. `--in` defaults to the device named by `--out`; `--no-in` opens no capture at all |
-| `--period N` | frames per ALSA period, which is also the block size handed to the plug-in — 64 frames is 1.33 ms at 48 kHz. Default 256: below that, a device shared with the sound server underruns (see below) |
-| `--periods N` | periods kept in flight: 2 is the tightest, more is safety against dropouts |
+| `--period N` | frames per ALSA period, which is also the block size handed to the plug-in — 256 by default, which is 5.33 ms at 48 kHz and what a DAW would use |
+| `--periods N` | periods kept in flight: 2 by default. Through a sound server the useful number is `period × periods`, which `openStream()` raises to the server's quantum (1024 frames) if the two together come out smaller |
 | `--gain X` | input trim before the plug-in, for an interface that records quietly |
 | `--in-file F.wav`, `--out-file F.wav` | feed the plug-in from a file, and record its output. Without an `--out`, a WAV in and a WAV out is a plain offline conversion that never opens a card |
 | `--param IDX:VAL` | set a plug-in parameter before the first block; `--list-params` prints the indices |
@@ -270,23 +270,29 @@ systemctl --user stop wireplumber pipewire pipewire-pulse   # frees the card
 systemctl --user start wireplumber pipewire pipewire-pulse  # the desktop takes it back
 ```
 
-The numbers say which way to go, and they are the reason the default period is 256 and not
-64. Through `default`, playback alone takes a small period without complaint — three seconds
-at `--period 128` ended with no underruns at all, and 64 likewise. Add a capture stream and
-the server starts feeding blocks the size of its own quantum, 1024 frames by default: the
-same 64 then emptied the playback buffer several times a minute, and with the editor window
-open — which is how a guitar player runs it — 3 to 4 underruns in 12 seconds. That is what a
-listener calls a sound that comes out in pieces: the gaps are filled with silence by the
-layer underneath, not by this program. At 256 and at 512, full duplex with the window open,
-the count stayed at zero across every run on this machine.
+The numbers say which way to go, and they were not the numbers first expected. Measured on the
+real THR10X through `default`, full duplex, editor window open, 8 seconds per run:
+`--period 64 --periods 2` underran the playback stream 375 times, and `--period 256
+--periods 2` — the block size a DAW would hand the plug-in — underran it 376. Raise the
+**buffer** to 1024 frames and that failure mode is gone at every period: `64×16`, `128×8`,
+`256×4` and `512×2` each produced the block count a clean run must (6001, 2993, 1501, 751 in
+8 seconds) instead of half of it, and over twenty-second runs the underrun count went from
+hundreds to between zero and four. The hundreds were the stream being served at half the rate
+it asked for, which is what a player calls a guitar cut into pieces; a lone underrun in twenty
+seconds is a hiccup nobody reaches for a flag over.
 
-So through the server keep the period near `clock.quantum` — read it with
-`pw-metadata -n settings 0` — or raise `--periods`; small periods are worth asking for only
-when the card is yours. A stream opened through the server at under 256 frames says so while
-it opens, and a run that underran at all names the number and the flag to change. The plug-in
-logs the same negotiation on its side (`~/.config/VoLum/volum.log`, one
-`[audio] reset: 48000 Hz, block 64, …` line per start), which is how a user-reported
-"choppy AppImage" was traced to its period without anyone reproducing it by ear.
+So through a server the parameter that decides is the whole buffer against the server's own
+quantum — PipeWire's `clock.quantum`, 1024 frames by default, read it with
+`pw-metadata -n settings 0` — not the size of the period. A stream whose buffer is smaller than
+that piece is fed in pieces it cannot hold, and no flag on the period fixes it. `openStream()`
+holds that floor for server-backed streams and says so as the stream opens ("tampon porte a 4
+periodes de 256 images"); a server that answers with less than the floor gets said about too,
+rather than left to be discovered by ear. The period itself stays free to choose, and a small
+one is still what a directly held card wants.
+
+Which is also the whole story of the crackling AppImage people heard: it asked for 64 frames in
+two periods, 128 frames of buffer, in front of a server serving 1024. Nothing in the plug-in and
+nothing in the cable was at fault.
 
 Stopping the server also stops the desktop's sound: no video, no browser tab, until the last
 line puts it back. Nothing in this port needs that to be permanent.
@@ -318,9 +324,12 @@ only two things it adds over `volum-live`:
 * **which device, at which period** — `~/.config/VoLum/app.conf`, the same `key=value` keys as
   `live.conf` (`out=`, `in=`, `period=`, `periods=`, `gain=`, `param=`), so the choice is made
   once and kept. `--help` lists them all. When the output comes out in pieces on a machine
-  whose card is shared with a sound server, this is the file that fixes it without a rebuild:
-  `echo 'period=256' >> ~/.config/VoLum/app.conf`. The AppImage reads the same file, so the
-  same one line reaches a package nobody can recompile.
+  whose card is shared with a sound server, this file fixes it without a rebuild — a package
+  nobody can recompile reads it too:
+
+  ```bash
+  echo 'period=512' >> ~/.config/VoLum/app.conf   # 1024 frames of buffer on PipeWire
+  ```
 
 The block loop, the ALSA negotiation, the editor window and the shutdown order are literally
 `volum-live`'s files — `runHost()` in `live-runner.cpp` — which is the reason both hosts can be

@@ -162,7 +162,30 @@ bool openStream(Stream& s, const std::string& device, snd_pcm_stream_t dir, int 
   int dirn = 0;
   snd_pcm_hw_params_set_rate_near(s.pcm, hp, &rate, &dirn);
 
-  unsigned int periods = wantPeriods;
+  // A server-backed device is fed in the server's pieces, not ours. On this machine that
+  // piece is 1024 frames - PipeWire's clock.quantum - and a stream whose whole buffer is
+  // smaller than it does not merely get more latency: it gets served at half the rate it
+  // asked for. Measured on the real THR10X through "default", full duplex with the window
+  // open, 8 seconds each: 64 frames x 2 periods ran 375 underruns and 64 x 16 ran zero;
+  // 256 x 2 ran 376 and 256 x 4, 128 x 8 and 512 x 2 ran zero. The common factor is a
+  // buffer of at least 1024 frames, not the size of the period - so hold the buffer to
+  // the floor and let the period stay whatever was asked for.
+  const unsigned int serverFloor = 1024;
+  const bool serverBacked = device == "default" || device == "sysdefault" || device == "pipewire" || device == "pulse";
+
+  unsigned int periods = wantPeriods ? wantPeriods : 2u;
+
+  if (serverBacked && wantPeriod > 0 && wantPeriod * periods < serverFloor)
+  {
+    const unsigned int needed = (serverFloor + wantPeriod - 1) / wantPeriod;
+    printf(
+      "%-8s : tampon porte a %u periodes de %u images (%u images) : le serveur son sert "
+      "par blocs de cette taille,\n         un tampon plus petit est alimente a retardement "
+      "et se vide.\n",
+      streamLabel(dir), needed, wantPeriod, needed * wantPeriod);
+    periods = needed;
+  }
+
   snd_pcm_hw_params_set_periods_near(s.pcm, hp, &periods, &dirn);
 
   // ALSA counts buffer sizes in frames, with its own type: not an unsigned int.
@@ -204,15 +227,13 @@ bool openStream(Stream& s, const std::string& device, snd_pcm_stream_t dir, int 
 
   s.raw.resize(static_cast<size_t>(s.bufferFrames) * s.channels * kindBytes(s.kind), 0);
 
-  // A server-backed device re-shapes our requests: its own period, not ours, sets how
-  // often the audio actually moves, so say so before anyone blames this program.
-  const bool serverBacked = device == "default" || device == "sysdefault" || device == "pipewire" || device == "pulse";
-
+  // A server-backed device re-shapes our requests: its own quantum, not our period, sets
+  // how often the audio actually moves, so say so before anyone blames this program.
   if (serverBacked)
     printf(
-      "%-8s : peripherique du serveur son : la periode demandee est recoupee par le serveur,"
-      "\n         la latence finale depend de sa periode a lui. Pour la carte en direct,"
-      " utilise front: ou plughw:\n",
+      "%-8s : peripherique du serveur son : le serveur sert par blocs de sa taille a lui,"
+      "\n         le tampon est porte a ce qu'il faut. Pour la carte en direct, utilise"
+      " front: ou plughw:\n",
       streamLabel(dir));
 
   const double periodMs = 1000.0 * double(period) / double(rate);
@@ -220,18 +241,15 @@ bool openStream(Stream& s, const std::string& device, snd_pcm_stream_t dir, int 
          device.c_str(), rate, snd_pcm_format_name(s.format), channels, static_cast<unsigned int>(period), periodMs,
          s.bufferFrames, static_cast<unsigned int>(buf / period));
 
-  // A period this short over a server that runs on its own quantum is not a small
-  // latency, it is a stream the server has to keep feeding in pieces: measured here in
-  // full duplex with the window open, 64 frames ran the playback dry several times a
-  // minute, 256 and 512 never once. What a listener hears from that is choppy output,
-  // and the advice is a flag, not a rebuild.
-  if (serverBacked && period < 256)
+  // A server that answers with a smaller buffer than its own quantum is the one case left
+  // where this program cannot fix the starvation by itself: it names it instead of letting
+  // someone chase it through a cable.
+  if (serverBacked && buf < serverFloor)
     printf(
-      "%-8s : attention : %u images par periode sur un peripherique du serveur son :"
-      "\n         le serveur taille a sa periode a lui, ce flux se videra par instants."
-      "\n         --period 256 est propre dans nos mesures ; pour plus court, prends la carte"
-      "\n         en direct (front: ou plughw:) ou regle le quantum du serveur.\n",
-      streamLabel(dir), static_cast<unsigned int>(period));
+      "%-8s : attention : le serveur a refuse plus de %u images de tampon alors qu'il sert "
+      "par blocs de %u :\n         ce flux se videra. Regle le quantum du serveur (bas) ou "
+      "descends la periode.\n",
+      streamLabel(dir), static_cast<unsigned int>(buf), serverFloor);
 
   return true;
 }

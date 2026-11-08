@@ -35,12 +35,12 @@ struct Options
   bool outRequested = false; // an explicit --out: a WAV input then plays live, not offline
   bool noIn = false; // --no-in: no capture stream at all
   double rate = 0.0; // 0 = whatever the device prefers, starting from 48000
-  // 256 frames, not 64. On a server-backed device - "default", which is what an
-  // installed VoLum and the AppImage both get - the server runs its own quantum (1024
-  // on this PipeWire) and cuts our period out of it. Measured here, full duplex with
-  // the window open: at 64 the playback stream runs dry several times a minute, and a
-  // guitar comes out in pieces; at 256 and 512 it never did. A 64-frame period is still
-  // what a directly held card wants (1.3 ms), so that is one flag away, not a rebuild.
+  // The block size handed to the plug-in: 256 frames is 5.33 ms at 48 kHz, big enough that
+  // a neural model is not re-entered every 1.3 ms, small enough that a guitar still feels
+  // immediate. What decides whether the sound comes out in pieces on a machine shared with a
+  // sound server is the total buffer against the server quantum, and openStream() holds that
+  // floor itself instead of trusting this number - which is why 64 frames is still reachable,
+  // through a server as well as on a card held directly.
   unsigned int period = 256;
   unsigned int periods = 2;
   double gain = 1.0; // input trim, applied before the plug-in sees the signal

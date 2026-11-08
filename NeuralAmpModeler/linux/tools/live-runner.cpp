@@ -290,8 +290,10 @@ int reportRun(const Session& session, Engine& eng, int exitCode)
   if (!session.offline && session.play.xruns > 0)
     printf(
       "  conseil : la sortie s'est videe %ld fois (craquements, son hache)."
-      "\n   augmente --period si tu passes par le serveur son, ou --periods pour un tampon"
-      "\n   plus grand ; 256 images par 48 kHz n'a jamais eu de xrun dans nos mesures.\n",
+      "\n   le tampon annonce plus haut doit atteindre le quantum du serveur son - 1024 images"
+      "\n   sur PipeWire. S'il y est deja, ce n'est plus le drapeau : c'est le reste du systeme"
+      "\n   qui prend le temps de la periode. Baisse --periods, ou remonte le quantum du"
+      "\n   serveur (pw-metadata -n settings 0 clock.quantum).\n",
       session.play.xruns);
 
   // An input nobody fed (--no-in, no --in, no --in-file) is silence by construction, so

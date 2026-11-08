@@ -14,11 +14,12 @@
  period of 64 frames is 1.45 ms at 44.1 kHz, so the round trip can drop to single
  digits.
 
- That is the directly-held-card case, and it is asked for by name (--period 64). The
- default is 256, because most runs go through the sound server ("default"), which cuts
- our period out of its own quantum: measured full duplex with the window open, a
- 64-frame period emptied the playback stream several times a minute and the guitar came
- out in pieces, while 256 and 512 never underran once.
+ That is the directly-held-card case, and it is asked for by name (--period 64). Over a sound
+ server the number that decides whether the guitar comes out in pieces is the whole buffer,
+ period x periods, against the server's own quantum: measured on a THR10X through "default",
+ full duplex with the window open, 64x2 underran 375 times in 8 seconds and 256x2 did it 376,
+ while 64x16, 128x8, 256x4 and 512x2 - all of them 1024 frames of buffer - ran clean. The block
+ loop opens its streams with that floor held, and says so when it raises it.
 
  What is left in this file is what belongs to a command line tool: the option names and
  their text. Opening the device, running the blocks and reporting the result is in
@@ -65,7 +66,8 @@ void printUsage(const char* argv0)
     "  --no-in              aucune capture : le plugin recevra du silence\n"
     "  --rate N             cadence, 0 = celle de la carte (defaut : 0)\n"
     "  --period N           images par periode, aussi la taille du bloc traite (defaut : 256)\n"
-    "  --periods N          periodes dans le tampon (defaut : 2)\n"
+    "  --periods N          periodes dans le tampon (defaut : 2 ; porte le tampon total a 1024\n"
+    " images sur un peripherique du serveur son)\n"
     "  --gain X             gain d'entree avant le plugin (defaut : 1)\n"
     "  --seconds N          duree, 0 = jusqu'a la fermeture de la fenetre (defaut : 0)\n"
     "  --meter N            secondes entre deux mesures de niveau, 0 = aucune (defaut : 2)\n"
@@ -84,7 +86,7 @@ void printUsage(const char* argv0)
     "  period=256\n"
     "\n"
     "guitare dans l'ampli, carte rendue a ce programme (--list pour les noms) :\n"
-    "  %s --out front:CARD=THR10X,DEV=0 --in front:CARD=THR10X,DEV=0 --period 64\n"
+    "  %s --out front:CARD=THR10X,DEV=0 --in front:CARD=THR10X,DEV=0 --period 64 --periods 2\n"
     "\n"
     "regler a l'oreille sans guitare, en jouant un fichier dans la carte :\n"
     "  %s --in-file guitare.wav --out default\n"
