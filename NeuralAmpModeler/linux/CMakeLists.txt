@@ -312,6 +312,17 @@ install(DIRECTORY "${VOLUM_BUNDLE_DIR}"
   DESTINATION "${VOLUM_INSTALL_DIR}"
   USE_SOURCE_PERMISSIONS)
 
+# Le standalone s'installe lui la ou un utilisateur regarde sans rien regler :
+# ~/.local/bin (deja au PATH sur Fedora comme sur Ubuntu) pour le programme,
+# ~/.local/share pour l'entree de menu et l'icone. Un packager qui veut un /usr/bin
+# passe -DCMAKE_INSTALL_PREFIX=/usr, et -DVOLUM_INSTALL_DIR=/usr/lib/vst3 pour le
+# paquet : rien d'autre ne bouge ici.
+if(CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
+  set(CMAKE_INSTALL_PREFIX "$ENV{HOME}/.local" CACHE PATH
+    "Prefix the standalone, its menu entry and its icon are installed under" FORCE)
+endif()
+
+
 # ---------------------------------------------------------------------------
 # The small hosts in tools/. They need the same host-side plumbing
 # (tools/host-support.h) and the same handful of SDK sources, so the list and the
@@ -437,4 +448,23 @@ if(VOLUM_BUILD_PORTAL_CHECK AND VOLUM_GIO_FOUND)
 
   set_target_properties(volum-portal-check PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+endif()
+
+# ---------------------------------------------------------------------------
+# What a user gets from `cmake --install build/linux`: the VST3 bundle where the
+# hosts look (VOLUM_INSTALL_DIR, ~/.vst3 by default), and the standalone where a
+# desktop looks - bin/, share/applications/, share/icons/hicolor/. These rules sit
+# after the host section because that is where volum-app becomes a target: asking
+# CMake to install a target it has not created yet installs nothing, quietly.
+# ---------------------------------------------------------------------------
+if(TARGET volum-app)
+  install(TARGETS volum-app RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+  install(FILES "${CMAKE_CURRENT_LIST_DIR}/packaging/volum.desktop"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
+  install(DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/packaging/hicolor/"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor")
+
+  # Ou ca atterrit, parce que deux endroits differents sont touches selon l'option, et
+  # qu'un PATH oublie est la premiere cause d'une entree de menu qui ne lance rien.
+  install(CODE "message(\"VoLum : paquet VST3 dans ${VOLUM_INSTALL_DIR} ; programme dans ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR} ; entree de menu dans ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_DATADIR}/applications\")")
 endif()

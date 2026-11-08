@@ -139,6 +139,38 @@ cmake --install build/linux          # -> ~/.vst3/VoLum.vst3
 That path is `$HOME/.vst3` on purpose: it is the per-user VST3 folder every Linux host
 scans (`VOLUM_INSTALL_DIR` overrides it, e.g. `-DVOLUM_INSTALL_DIR=/usr/local/lib/vst3`).
 
+### The same install puts the standalone where a desktop looks
+
+```
+~/.local/bin/volum-app                             the program
+~/.local/share/applications/volum.desktop           its menu entry
+~/.local/share/icons/hicolor/*/apps/volum.png       its icon, six sizes
+~/.vst3/VoLum.vst3                                  the bundle the program loads
+```
+
+The default prefix is per-user — `~/.local`, which is already on `PATH` on Fedora and
+Ubuntu — so building then installing gives a program and a menu entry without root and
+without any configuration; `CMAKE_INSTALL_PREFIX` overrides it. The two halves land where
+each already looks: `volum-app` searches `~/.vst3` for its bundle
+([the standalone](#the-standalone-application)), and the menu entry names `VoLum` as
+`StartupWMClass`, which is the `WM_CLASS` the standalone's window publishes — that is what
+lets a taskbar group the running window with the entry instead of showing a second,
+nameless one.
+
+A packager wants system paths instead: `-DCMAKE_INSTALL_PREFIX=/usr` moves the program,
+the entry and the icons to `/usr/bin` and `/usr/share`, and
+`-DVOLUM_INSTALL_DIR=/usr/lib/vst3` moves the bundle; `DESTDIR=` then stages the whole
+thing into a build root, which is what an RPM, a tarball and an AppImage all do
+([issue #4](https://github.com/dmos42/VoLum/issues/4)). Checked both ways here: staged into
+a `/usr` root the tree comes out as `/usr/bin/volum-app`,
+`/usr/share/applications/volum.desktop` (which `desktop-file-validate` accepts) and six
+icons under `/usr/share/icons/hicolor`.
+
+The icon is the artwork the Windows and macOS builds already ship
+(`NeuralAmpModeler.ico`, taken at six sizes). VoLum draws its own wordmark inside the
+editor but has no icon mark of its own yet, and inventing one in a packaging commit is not
+the place to do it.
+
 ### Two names for the module
 
 The install puts one real file and one relative link next to it:

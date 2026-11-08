@@ -59,7 +59,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             ninja-build xvfb libx11-dev libgl1-mesa-dev libglu1-mesa-dev libatomic1 libasound2-dev \
-            libglib2.0-dev dbus dbus-daemon dbus-bin python3-gi gir1.2-glib-2.0
+            libglib2.0-dev dbus dbus-daemon dbus-bin python3-gi gir1.2-glib-2.0 desktop-file-utils
         shell: bash
 
       - name: Configure
@@ -96,6 +96,24 @@ jobs:
           [ "$code" -eq 0 ] || exit "$code"
           printf '%s\n' "$out" | grep -q 'controles, aucun clic' \
             || { echo "le test du portail n'a rien verifie : il lui faut dbus et python3-gi"; exit 1; }
+        shell: bash
+
+      - name: Stage a system installation
+        # What an RPM, a tarball and an AppImage are all built on: the same install
+        # rules, staged into a build root. Checked here rather than at release time,
+        # because an install rule aimed at a target that has not been created yet
+        # installs nothing and says nothing while doing it - which is what this did the
+        # first time, until the rules were moved below the host section.
+        run: |
+          rm -rf /tmp/stage
+          DESTDIR=/tmp/stage cmake --install build/linux --prefix /usr
+          test -x /tmp/stage/usr/bin/volum-app
+          test -s /tmp/stage/usr/share/applications/volum.desktop
+          test -s /tmp/stage/usr/share/icons/hicolor/256x256/apps/volum.png
+          test -s /tmp/stage/usr/share/icons/hicolor/48x48/apps/volum.png
+          find /tmp/stage -name 'VoLum.vst3.so' | grep -q .
+          test -L "$(find /tmp/stage -name 'VoLum.so' -type l | head -1)"
+          desktop-file-validate /tmp/stage/usr/share/applications/volum.desktop
         shell: bash
 
       - name: Probe the audio path

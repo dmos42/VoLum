@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=VoLum
+GenericName=Guitar amplifier
+GenericName[fr]=Amplificateur de guitare
+Comment=VoLum stand-alone: the NAM player with its own window and audio device
+Comment[fr]=VoLum autonome : le lecteur NAM avec sa fenetre et son peripherique audio
+Exec=volum-app
+TryExec=volum-app
+Icon=volum
+Terminal=false
+Categories=AudioVideo;Audio;Midi;
+Keywords=guitar;amplifier;cabinet;pedal;namm;rig;
+StartupWMClass=VoLum
