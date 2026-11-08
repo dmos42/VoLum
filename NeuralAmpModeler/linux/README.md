@@ -215,6 +215,17 @@ systemctl --user stop wireplumber pipewire pipewire-pulse   # frees the card
 systemctl --user start wireplumber pipewire pipewire-pulse  # the desktop takes it back
 ```
 
+The numbers say which way to go. Through `default`, playback alone takes a small period
+without complaint — three seconds at `--period 128` ended with no underruns at all. Add a
+capture stream and the server starts feeding blocks the size of its own quantum, 1024 frames
+by default, and the same period then emptied the playback buffer 273 times in three seconds.
+So through the server keep the period near `clock.quantum` — read it with
+`pw-metadata -n settings 0` — or raise `--periods`; small periods are worth asking for only
+when the card is yours.
+
+Stopping the server also stops the desktop's sound: no video, no browser tab, until the last
+line puts it back. Nothing in this port needs that to be permanent.
+
 A card another program holds answers `Device or resource busy`, and the error names both
 ways out of it. Nothing else in this port asks you to touch the desktop audio server: that
 one step is the price of a few milliseconds.
@@ -311,8 +322,10 @@ buses, no resampling inside the host. Capture and playback have to agree on one 
 the tool checks and reports instead of hiding. A card that only does 44 100 Hz — many small
 USB amps, the Yamaha THR10X among them — therefore runs the plug-in at 44 100 Hz, and it is
 VoLum that has to cope: it carries `AudioDSPTools/dsp/ResamplingContainer` and
-`VoLumResamplingNam.h` for the 48 kHz `.nam` models, but whether that path engages at
-44 100 Hz has not been measured yet.
+`VoLumResamplingNam.h` for the 48 kHz `.nam` models. That path has now been measured, offline
+with `volum-live --in-file` (44 100 Hz in, 44 100 Hz out): a 220 Hz tone came back as the
+tone plus its harmonics — 440, 660, 880, 1760 Hz — with no measurable energy above 16 kHz,
+so nothing is folded back into the top end.
 
 ## Relationship with upstream's own Linux work
 
