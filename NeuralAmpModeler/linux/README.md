@@ -309,6 +309,17 @@ thread and only pumps window events between blocks: redraws do not stall the str
 the run stops when the window closes. `--no-ui` leaves the window unopened, for a rack
 started from a script.
 
+One thing the platform layer has to remember to say out loud: iPlug 2 plug-ins are told
+their editor is open through `OnUIOpen()`, and VoLum uses that handshake to decide whether
+to measure levels at all — its `ProcessBlock` steps over the meter work while the flag is
+false. Only `IGraphicsWin` called it, so on Linux the window loaded, drew, clicked and ran
+the amp with both meter columns dead and no error to show for it. The call now happens
+after the control tree is laid out, on the editor's own thread; placed where Windows
+places it — inside `OpenWindow`, before that tree exists — it core dumps on the spot,
+which is the stack `git log` in iPlug2 records. Two screenshots two seconds apart of a run
+with live audio say the rest: before, 0 pixels of the window differ and the columns are
+dark; after, 11 363 pixels move and the IN and OUT bars come up lit.
+
 ### The standalone application
 
 `volum-app` is the Linux counterpart of the `VoLum.exe` / `VoLum.app` upstream ships: run it
