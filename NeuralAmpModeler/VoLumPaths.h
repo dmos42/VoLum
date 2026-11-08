@@ -128,7 +128,8 @@ inline std::vector<std::filesystem::path> LinuxRigsCandidates(const std::filesys
     }
   }
 
-  for (const char* prefix : {"/usr/local/share", "/usr/share", "/usr/local/lib", "/usr/lib", "/usr/lib64", "/usr/local/lib64"})
+  for (const char* prefix :
+       {"/usr/local/share", "/usr/share", "/usr/local/lib", "/usr/lib", "/usr/lib64", "/usr/local/lib64"})
   {
     const fs::path base(prefix);
     candidates.push_back(base / "VoLum" / "VoLumRigs");
