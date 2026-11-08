@@ -157,6 +157,23 @@ Not implemented yet, each with a `TODO(linux)` at the site:
 * Not covered: MIDI 2, multiple simultaneous instances tested under a real host, HiDPI
   fractional scaling, ARM (`aarch64-linux` is wired up in `CMakeLists.txt` but never built).
 
+## Relationship with upstream's own Linux work
+
+Checked on 2026-11-08 against `guitarlum/VoLum` and `guitarlum/iPlug2`: `main` has no Linux
+target, but the owner is porting Linux on side branches that are **not merged anywhere** —
+`feature/linux-01-box` … `feature/linux-18-callback-budget` in VoLum, with matching
+`volum/linux`, `volum/linux-07a-xlib`, `volum/linux-07b-pugl`, … `volum/linux-18` in the
+iPlug2 fork (last commit 2026-10-26). Their backend is split into
+`IGraphicsLinux{GL,Keys,Font,Clipboard,Dialogs}.cpp` (~880 lines in the main file, glad for
+OpenGL loading, plus `IPlugAPP_linux.cpp` for the standalone app, which this port does not
+have). Ours is a single `IGraphicsLinux.cpp` (1608 lines, plain GL2) built by
+`NeuralAmpModeler/linux/CMakeLists.txt` for VST3 only.
+
+Before continuing here, compare with `feature/linux-18-callback-budget`: whoever picks this
+up should pick one backend and move the missing pieces across, not grow a third fork. Their
+stage list (dialogs, standalone, packaging, e2e, MIDI, xrun, callback budget) is a better
+map of the remaining work than the list above.
+
 ## Layout of the port
 
 ```
