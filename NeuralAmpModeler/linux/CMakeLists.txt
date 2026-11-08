@@ -46,6 +46,8 @@ find_package(OpenGL REQUIRED)
 find_package(X11 REQUIRED)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
+# Optional: volum-live is the only tool that talks to ALSA; the plug-in itself does not.
+find_package(ALSA)
 
 # libatomic. Two 64-bit atomics in the code we link resolve to __atomic_store/__atomic_load
 # libcalls rather than inline instructions. Fedora's GCC adds -latomic to the link line by
@@ -282,40 +284,69 @@ install(DIRECTORY "${VOLUM_BUNDLE_DIR}"
   USE_SOURCE_PERMISSIONS)
 
 # ---------------------------------------------------------------------------
-# volum-vst3-probe: a very small host (dlopen, factory, one instance, a test tone,
-# optionally the editor inside a plain X11 window). It answers "does the port load
-# and make sound?" without needing a DAW installed.
+# The two small hosts in tools/. They need the same host-side plumbing
+# (tools/host-support.h) and the same handful of SDK sources, so the list and the
+# settings are shared and each tool adds only what is its own.
+#
+#   volum-vst3-probe : headless. dlopen, one instance, a test tone, the editor in
+#                      a plain X11 window. Answers "does the port load and make
+#                      sound?" with no DAW installed.
+#   volum-live       : drives the plug-in itself - ALSA capture and playback plus
+#                      the editor window - so a guitar can go through VoLum with no
+#                      DAW in front of it, no JACK bridge, and one period of
+#                      buffering instead of three.
 # ---------------------------------------------------------------------------
 
 option(VOLUM_BUILD_PROBE "Build the small headless VST3 host used to check the port" ON)
+option(VOLUM_BUILD_LIVE "Build volum-live, the ALSA host that runs the plug-in with no DAW" ON)
 
-if(VOLUM_BUILD_PROBE)
-  add_executable(volum-vst3-probe
-    "${CMAKE_CURRENT_LIST_DIR}/tools/vst3-probe.cpp"
-    "${VST3_SDK}/base/source/baseiids.cpp"
-    "${VST3_SDK}/base/source/fbuffer.cpp"
-    "${VST3_SDK}/base/source/fdebug.cpp"
-    "${VST3_SDK}/base/source/fdynlib.cpp"
-    "${VST3_SDK}/base/source/fobject.cpp"
-    "${VST3_SDK}/base/source/fstreamer.cpp"
-    "${VST3_SDK}/base/source/fstring.cpp"
-    "${VST3_SDK}/base/source/timer.cpp"
-    "${VST3_SDK}/base/source/updatehandler.cpp"
-    "${VST3_SDK}/base/thread/source/fcondition.cpp"
-    "${VST3_SDK}/base/thread/source/flock.cpp"
-    "${VST3_SDK}/pluginterfaces/base/conststringtable.cpp"
-    "${VST3_SDK}/pluginterfaces/base/coreiids.cpp"
-    "${VST3_SDK}/pluginterfaces/base/funknown.cpp"
-    "${VST3_SDK}/pluginterfaces/base/ustring.cpp"
-    "${VST3_SDK}/public.sdk/source/common/commoniids.cpp"
-    "${VST3_SDK}/public.sdk/source/vst/vstinitiids.cpp"
+set(VOLUM_HOST_SDK_SOURCES
+  "${VST3_SDK}/base/source/baseiids.cpp"
+  "${VST3_SDK}/base/source/fbuffer.cpp"
+  "${VST3_SDK}/base/source/fdebug.cpp"
+  "${VST3_SDK}/base/source/fdynlib.cpp"
+  "${VST3_SDK}/base/source/fobject.cpp"
+  "${VST3_SDK}/base/source/fstreamer.cpp"
+  "${VST3_SDK}/base/source/fstring.cpp"
+  "${VST3_SDK}/base/source/timer.cpp"
+  "${VST3_SDK}/base/source/updatehandler.cpp"
+  "${VST3_SDK}/base/thread/source/fcondition.cpp"
+  "${VST3_SDK}/base/thread/source/flock.cpp"
+  "${VST3_SDK}/pluginterfaces/base/conststringtable.cpp"
+  "${VST3_SDK}/pluginterfaces/base/coreiids.cpp"
+  "${VST3_SDK}/pluginterfaces/base/funknown.cpp"
+  "${VST3_SDK}/pluginterfaces/base/ustring.cpp"
+  "${VST3_SDK}/public.sdk/source/common/commoniids.cpp"
+  "${VST3_SDK}/public.sdk/source/vst/vstinitiids.cpp"
+)
+
+macro(volum_configure_host target source)
+  add_executable(${target}
+    "${CMAKE_CURRENT_LIST_DIR}/tools/${source}"
+    ${VOLUM_HOST_SDK_SOURCES}
   )
 
-  target_compile_definitions(volum-vst3-probe PRIVATE RELEASE $<$<NOT:$<CONFIG:Debug>>:NDEBUG>)
-  target_include_directories(volum-vst3-probe PRIVATE "${VST3_SDK}")
-  target_link_libraries(volum-vst3-probe PRIVATE X11::X11 ${CMAKE_DL_LIBS} ${VOLUM_LIBATOMIC})
-  target_compile_features(volum-vst3-probe PRIVATE cxx_std_17)
+  target_compile_definitions(${target} PRIVATE RELEASE $<$<NOT:$<CONFIG:Debug>>:NDEBUG>)
+  target_include_directories(${target} PRIVATE "${VST3_SDK}" "${CMAKE_CURRENT_LIST_DIR}/tools")
+  target_link_libraries(${target} PRIVATE X11::X11 ${CMAKE_DL_LIBS} ${VOLUM_LIBATOMIC})
+  target_compile_features(${target} PRIVATE cxx_std_17)
 
-  set_target_properties(volum-vst3-probe PROPERTIES
+  set_target_properties(${target} PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+endmacro()
+
+if(VOLUM_BUILD_PROBE)
+  volum_configure_host(volum-vst3-probe vst3-probe.cpp)
+endif()
+
+if(VOLUM_BUILD_LIVE)
+  if(NOT ALSA_FOUND)
+    message(WARNING
+      "alsa-lib introuvable : volum-live ne sera pas construit. Installe alsa-lib-devel "
+      "(Fedora) ou libasound2-dev (Ubuntu/Debian), puis relance le configure.")
+  else()
+    volum_configure_host(volum-live alsa-live.cpp)
+    target_include_directories(volum-live PRIVATE ${ALSA_INCLUDE_DIRS})
+    target_link_libraries(volum-live PRIVATE ${ALSA_LIBRARIES})
+  endif()
 endif()

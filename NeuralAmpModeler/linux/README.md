@@ -10,7 +10,10 @@ X11 + GLX.
 Status of the port: the audio path, the VST3 wrapper, the editor window, mouse/keyboard
 input, in-app menus and text entry, clipboard, cursors and fonts all work. The file / folder
 / colour dialogs, the native message box and the standalone application are still missing —
-see [Limitations](#limitations).
+see [Limitations](#limitations). Two command-line hosts are built alongside the plug-in: a
+probe that answers "does the module load and make sound?", and
+[`volum-live`](#running-volum-without-a-daw), which plays the plug-in straight against ALSA
+with its own window, no DAW in the way.
 
 ## Requirements
 
@@ -32,13 +35,13 @@ sudo dnf install @development-tools cmake ninja-build clang \
 | `xcb-util-{image,wm,cursor}-devel`, `libXcursor-devel` | cursor loading and the Xfixes/Xrender headers those pull in |
 | `libglvnd-devel`, `mesa-libGL-devel` | GLX + OpenGL 2 for NanoVG (`IGRAPHICS_GL2`) |
 | `freetype-devel` | font loading through NanoVG |
-| `alsa-lib-devel` | pulled in by the audio dependencies; the plug-in itself does not open a device |
+| `alsa-lib-devel` | needed by `volum-live`, the host that opens the capture and playback streams itself; the plug-in never touches a device |
 | `xorg-x11-server-Xvfb` | headless X server, only for the probe harness and CI |
 
 Debian/Ubuntu names, for anyone who ports the CI later — not verified on a Debian box:
 `build-essential cmake ninja-build libx11-dev libgl1-mesa-dev libfreetype-dev
 libxcursor-dev libxcb-util-dev libxcb-image0-dev libxcb-icccm4-dev libxcb-cursor-dev
-libatomic1 xvfb`.
+libasound2-dev libatomic1 xvfb`.
 
 `libatomic1` matters: two 64-bit atomics compile to `__atomic_store`/`__atomic_load` libcalls,
 and GCC below 14 does not add `-latomic` on its own. A shared library links fine with an
@@ -75,6 +78,12 @@ build/linux/VoLum.vst3/
 ├── Contents/x86_64-linux/VoLum.vst3.so     # the module
 └── Contents/Resources/{fonts,img,VoLumRigs}
 ```
+
+Two command-line hosts are built next to it, both directly in `build/linux/`:
+`volum-vst3-probe`, described under [the probe harness](#the-probe-harness), and
+`volum-live`, described under [running VoLum without a DAW](#running-volum-without-a-daw).
+The live host is the only target that needs ALSA; when its headers are missing the build
+prints a warning and simply leaves it out.
 
 `-DVOLUM_COPY_RIGS=OFF` skips the 249 bundled `.nam` rigs (the bundle drops from ~83 MB to a
 few MB); the plug-in then looks for rigs in the paths listed under [Files VoLum
@@ -159,12 +168,73 @@ carries an older glibc than a Fedora 44 build demands, so that Carla still refus
 See [issue #7](https://github.com/dmos42/VoLum/issues/7) and the portability note in
 [Limitations](#limitations); the packaged (native) Carla loads it normally.
 
+## Running VoLum without a DAW
+
+`volum-live` is a host of its own: it opens the ALSA streams itself, loads the same
+`VoLum.vst3` module, and puts the plug-in's own window on the screen. Device and period
+size are options you hand to the program instead of settings you look for in a host's
+dialogs, and no audio server sits between the guitar and the amp. Its messages are in
+French; the options are not.
+
+```bash
+./build/linux/volum-live --list     # what ALSA can see, then stop
+./build/linux/volum-live --check    # negotiate everything, print it, play nothing
+./build/linux/volum-live            # editor, in and out on the default device
+```
+
+Options worth knowing:
+
+| option | meaning |
+| --- | --- |
+| `--out DEV`, `--in DEV` | playback and capture devices. `--in` defaults to the device named by `--out`; `--no-in` opens no capture at all |
+| `--period N` | frames per ALSA period, which is also the block size handed to the plug-in — 64 frames is 1.33 ms at 48 kHz |
+| `--periods N` | periods kept in flight: 2 is the tightest, more is safety against dropouts |
+| `--gain X` | input trim before the plug-in, for an interface that records quietly |
+| `--in-file F.wav`, `--out-file F.wav` | feed the plug-in from a file, and record its output. Without an `--out`, a WAV in and a WAV out is a plain offline conversion that never opens a card |
+| `--param IDX:VAL` | set a plug-in parameter before the first block; `--list-params` prints the indices |
+| `--meter N`, `--seconds N`, `--no-ui` | level report every N seconds, run length, skip the window |
+
+The same keys may be written in `~/.config/VoLum/live.conf`, one `key=value` per line, and
+the command line wins over the file. Ctrl-C ends a run; so does closing the plug-in's window.
+
+Levels are reported as crest and RMS in dBFS in both directions, with a warning when the
+input clips, and the run finishes with a verdict — sound coming out, or an empty output
+explained as either a missing signal or an input nobody fed. A run that underruns its
+playback buffer says so and suggests `--periods`.
+
+### Straight from the card, or through the audio server
+
+`default` works in both directions and cannot break anything, but PipeWire re-frames the
+stream at its own quantum, so the period you asked for is not the period you hear; the
+tool says so while opening the stream. The lowest round trip needs the card to yourself,
+which means asking the desktop to let go of it for a while:
+
+```bash
+systemctl --user stop wireplumber pipewire pipewire-pulse   # frees the card
+./build/linux/volum-live --out front:CARD=THR10X,DEV=0 --in front:CARD=THR10X,DEV=0 --period 64
+systemctl --user start wireplumber pipewire pipewire-pulse  # the desktop takes it back
+```
+
+A card another program holds answers `Device or resource busy`, and the error names both
+ways out of it. Nothing else in this port asks you to touch the desktop audio server: that
+one step is the price of a few milliseconds.
+
+### What the window costs the audio thread
+
+The plug-in's view runs on its own thread with its own X11 connection — that is
+[iPlug 2's Linux platform layer](#layout-of-the-port) — so the audio loop keeps the main
+thread and only pumps window events between blocks: redraws do not stall the stream, and
+the run stops when the window closes. `--no-ui` leaves the window unopened, for a rack
+started from a script.
+
 ## The probe harness
 
-`volum-vst3-probe` is a 740-line host: `dlopen` the module, run the factory, instantiate,
+`volum-vst3-probe` is a headless host: `dlopen` the module, run the factory, instantiate,
 feed a test tone through the audio path, and optionally open the editor in a bare X11
 window. It answers "does the port load and make sound?" without a DAW, which is what CI
-needs.
+needs. Its VST3 plumbing — loading the module, the component handler, the X11 window that
+takes the embedded editor — sits in `tools/host-support.h` and is shared with
+[`volum-live`](#running-volum-without-a-daw), so both hosts see the same behaviour.
 
 ```bash
 # audio only, 2 s of 48 kHz test signal, prints RMS of the output
@@ -185,10 +255,11 @@ Other flags: `--seconds N`, `--rate R`, `--param IDX:VAL` (normalized), `--ui-on
 code 0 means the module loaded, processed without a crash and, with `--ui`, that the editor
 opened and closed cleanly.
 
-CI runs exactly those two probe invocations on `ubuntu-latest`:
-`.github/workflows/linux-vst3.yml` installs the X11/GL headers, configures this folder with
-`-DVOLUM_COPY_RIGS=OFF`, builds, probes audio then the editor under `xvfb-run`, and uploads
-the bundle as an artifact.
+CI runs those probes and one live-host run on `ubuntu-latest`:
+`.github/workflows/linux-vst3.yml` installs the X11/GL and `libasound2-dev` headers,
+configures this folder with `-DVOLUM_COPY_RIGS=OFF`, builds, probes audio then the editor
+under `xvfb-run`, plays a generated tone WAV through `volum-live` in its card-free file
+mode, and uploads the bundle as an artifact.
 
 ## Files VoLum writes on Linux
 
@@ -197,6 +268,11 @@ the bundle as an artifact.
 | `~/.config/VoLum/volum-settings.json` | UI/window settings (or `$XDG_CONFIG_HOME/VoLum/...`) |
 | `~/.config/VoLum/volum-update-state.json` | update-check state |
 | `~/.vst3/VoLum.vst3/Contents/Resources/VoLumRigs/` | the bundled rig collection, copied by the build |
+| `~/.config/VoLum/volum.log` | iPlug 2's log, written by the plug-in whatever host loads it |
+
+`~/.config/VoLum/live.conf` belongs to the same folder but is only read, never written: it
+is where you keep the [live host's](#running-volum-without-a-daw) device and period size
+between runs.
 
 `RigsRootCandidates()` in `VoLumPaths.h` resolves the rig collection in this order: the
 bundle's own `Resources/VoLumRigs`, the tree above the module (a dev or portable build, found
@@ -230,6 +306,14 @@ Not implemented yet, each with a `TODO(linux)` at the site:
   container is enough — and check the ceiling with
   `objdump -T .../VoLum.vst3.so | grep -o 'GLIBC_2\.[0-9]*' | sort -Vu | tail -1`. Issue #7.
 
+`volum-live` has limits of its own, and they are deliberate: no MIDI, one stereo pair of
+buses, no resampling inside the host. Capture and playback have to agree on one rate, which
+the tool checks and reports instead of hiding. A card that only does 44 100 Hz — many small
+USB amps, the Yamaha THR10X among them — therefore runs the plug-in at 44 100 Hz, and it is
+VoLum that has to cope: it carries `AudioDSPTools/dsp/ResamplingContainer` and
+`VoLumResamplingNam.h` for the 48 kHz `.nam` models, but whether that path engages at
+44 100 Hz has not been measured yet.
+
 ## Relationship with upstream's own Linux work
 
 Checked on 2026-11-08 against `guitarlum/VoLum` and `guitarlum/iPlug2`: `main` has no Linux
@@ -251,7 +335,9 @@ map of the remaining work than the list above.
 
 ```
 NeuralAmpModeler/linux/CMakeLists.txt   # the build itself
-NeuralAmpModeler/linux/tools/vst3-probe.cpp
+NeuralAmpModeler/linux/tools/host-support.h    # load the module, component handler, X11 window: shared by both hosts
+NeuralAmpModeler/linux/tools/vst3-probe.cpp    # headless probe: audio path, then the editor
+NeuralAmpModeler/linux/tools/alsa-live.cpp     # ALSA in/out host that shows the plug-in's window
 NeuralAmpModeler/VoLumPaths.h           # __linux__ branches: rigs, settings, update state
 NeuralAmpModeler/NeuralAmpModeler.cpp   # null-checks for tag lookups during createView()/attached()
 iPlug2 (branch volum/linux-port)
