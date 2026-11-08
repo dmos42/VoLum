@@ -242,7 +242,7 @@ Options worth knowing:
 | option | meaning |
 | --- | --- |
 | `--out DEV`, `--in DEV` | playback and capture devices. `--in` defaults to the device named by `--out`; `--no-in` opens no capture at all |
-| `--period N` | frames per ALSA period, which is also the block size handed to the plug-in — 64 frames is 1.33 ms at 48 kHz |
+| `--period N` | frames per ALSA period, which is also the block size handed to the plug-in — 64 frames is 1.33 ms at 48 kHz. Default 256: below that, a device shared with the sound server underruns (see below) |
 | `--periods N` | periods kept in flight: 2 is the tightest, more is safety against dropouts |
 | `--gain X` | input trim before the plug-in, for an interface that records quietly |
 | `--in-file F.wav`, `--out-file F.wav` | feed the plug-in from a file, and record its output. Without an `--out`, a WAV in and a WAV out is a plain offline conversion that never opens a card |
@@ -270,13 +270,23 @@ systemctl --user stop wireplumber pipewire pipewire-pulse   # frees the card
 systemctl --user start wireplumber pipewire pipewire-pulse  # the desktop takes it back
 ```
 
-The numbers say which way to go. Through `default`, playback alone takes a small period
-without complaint — three seconds at `--period 128` ended with no underruns at all. Add a
-capture stream and the server starts feeding blocks the size of its own quantum, 1024 frames
-by default, and the same period then emptied the playback buffer 273 times in three seconds.
+The numbers say which way to go, and they are the reason the default period is 256 and not
+64. Through `default`, playback alone takes a small period without complaint — three seconds
+at `--period 128` ended with no underruns at all, and 64 likewise. Add a capture stream and
+the server starts feeding blocks the size of its own quantum, 1024 frames by default: the
+same 64 then emptied the playback buffer several times a minute, and with the editor window
+open — which is how a guitar player runs it — 3 to 4 underruns in 12 seconds. That is what a
+listener calls a sound that comes out in pieces: the gaps are filled with silence by the
+layer underneath, not by this program. At 256 and at 512, full duplex with the window open,
+the count stayed at zero across every run on this machine.
+
 So through the server keep the period near `clock.quantum` — read it with
 `pw-metadata -n settings 0` — or raise `--periods`; small periods are worth asking for only
-when the card is yours.
+when the card is yours. A stream opened through the server at under 256 frames says so while
+it opens, and a run that underran at all names the number and the flag to change. The plug-in
+logs the same negotiation on its side (`~/.config/VoLum/volum.log`, one
+`[audio] reset: 48000 Hz, block 64, …` line per start), which is how a user-reported
+"choppy AppImage" was traced to its period without anyone reproducing it by ear.
 
 Stopping the server also stops the desktop's sound: no video, no browser tab, until the last
 line puts it back. Nothing in this port needs that to be permanent.
@@ -307,7 +317,10 @@ only two things it adds over `volum-live`:
   program prints every folder it searched instead of "cannot open file".
 * **which device, at which period** — `~/.config/VoLum/app.conf`, the same `key=value` keys as
   `live.conf` (`out=`, `in=`, `period=`, `periods=`, `gain=`, `param=`), so the choice is made
-  once and kept. `--help` lists them all.
+  once and kept. `--help` lists them all. When the output comes out in pieces on a machine
+  whose card is shared with a sound server, this is the file that fixes it without a rebuild:
+  `echo 'period=256' >> ~/.config/VoLum/app.conf`. The AppImage reads the same file, so the
+  same one line reaches a package nobody can recompile.
 
 The block loop, the ALSA negotiation, the editor window and the shutdown order are literally
 `volum-live`'s files — `runHost()` in `live-runner.cpp` — which is the reason both hosts can be
@@ -322,8 +335,8 @@ printed by default (`--meter N` still asks for them), and closing the window is 
 ```
 
 What it deliberately is not: a DAW. One stereo pair in and out, no timeline, no routing, no
-MIDI in the host yet ([issue #6](https://github.com/dmos42/VoLum/issues/6)). There is also no
-`.desktop` entry, icon or installer yet — that is step 6 of [issue #8](https://github.com/dmos42/VoLum/issues/8).
+MIDI in the host yet ([issue #6](https://github.com/dmos42/VoLum/issues/6)), and no settings
+window of its own — the keys above are the settings for now.
 
 ## The probe harness
 

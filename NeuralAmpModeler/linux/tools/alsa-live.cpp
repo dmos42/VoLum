@@ -14,6 +14,12 @@
  period of 64 frames is 1.45 ms at 44.1 kHz, so the round trip can drop to single
  digits.
 
+ That is the directly-held-card case, and it is asked for by name (--period 64). The
+ default is 256, because most runs go through the sound server ("default"), which cuts
+ our period out of its own quantum: measured full duplex with the window open, a
+ 64-frame period emptied the playback stream several times a minute and the guitar came
+ out in pieces, while 256 and 512 never underran once.
+
  What is left in this file is what belongs to a command line tool: the option names and
  their text. Opening the device, running the blocks and reporting the result is in
  live-runner.{h,cpp}, where the standalone host (volum-app) reaches for the same code -
@@ -58,7 +64,7 @@ void printUsage(const char* argv0)
     "  --in DEV             peripherique ALSA d'entree (defaut : la meme que --out)\n"
     "  --no-in              aucune capture : le plugin recevra du silence\n"
     "  --rate N             cadence, 0 = celle de la carte (defaut : 0)\n"
-    "  --period N           images par periode, aussi la taille du bloc traite (defaut : 64)\n"
+    "  --period N           images par periode, aussi la taille du bloc traite (defaut : 256)\n"
     "  --periods N          periodes dans le tampon (defaut : 2)\n"
     "  --gain X             gain d'entree avant le plugin (defaut : 1)\n"
     "  --seconds N          duree, 0 = jusqu'a la fermeture de la fenetre (defaut : 0)\n"
@@ -75,7 +81,7 @@ void printUsage(const char* argv0)
     "\n"
     "Les memes cles peuvent etre ecrites dans %s, une par ligne, sous la forme\n"
     "  out=default\n"
-    "  period=64\n"
+    "  period=256\n"
     "\n"
     "guitare dans l'ampli, carte rendue a ce programme (--list pour les noms) :\n"
     "  %s --out front:CARD=THR10X,DEV=0 --in front:CARD=THR10X,DEV=0 --period 64\n"

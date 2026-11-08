@@ -35,7 +35,13 @@ struct Options
   bool outRequested = false; // an explicit --out: a WAV input then plays live, not offline
   bool noIn = false; // --no-in: no capture stream at all
   double rate = 0.0; // 0 = whatever the device prefers, starting from 48000
-  unsigned int period = 64;
+  // 256 frames, not 64. On a server-backed device - "default", which is what an
+  // installed VoLum and the AppImage both get - the server runs its own quantum (1024
+  // on this PipeWire) and cuts our period out of it. Measured here, full duplex with
+  // the window open: at 64 the playback stream runs dry several times a minute, and a
+  // guitar comes out in pieces; at 256 and 512 it never did. A 64-frame period is still
+  // what a directly held card wants (1.3 ms), so that is one flag away, not a rebuild.
+  unsigned int period = 256;
   unsigned int periods = 2;
   double gain = 1.0; // input trim, applied before the plug-in sees the signal
   double seconds = 0.0; // 0 = run until the window closes or Ctrl-C

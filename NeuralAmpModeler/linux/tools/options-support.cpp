@@ -280,7 +280,7 @@ bool parseArgs(int argc, char** argv, Options& opt, void (*printUsage)(const cha
     opt.inDevice = opt.outDevice;
 
   if (opt.period == 0)
-    opt.period = 64;
+    opt.period = 256; // see Options::period: 64 crackles over a sound server
   if (opt.periods == 0)
     opt.periods = 2;
 

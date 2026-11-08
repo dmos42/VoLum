@@ -206,7 +206,9 @@ bool openStream(Stream& s, const std::string& device, snd_pcm_stream_t dir, int 
 
   // A server-backed device re-shapes our requests: its own period, not ours, sets how
   // often the audio actually moves, so say so before anyone blames this program.
-  if (device == "default" || device == "sysdefault" || device == "pipewire" || device == "pulse")
+  const bool serverBacked = device == "default" || device == "sysdefault" || device == "pipewire" || device == "pulse";
+
+  if (serverBacked)
     printf(
       "%-8s : peripherique du serveur son : la periode demandee est recoupee par le serveur,"
       "\n         la latence finale depend de sa periode a lui. Pour la carte en direct,"
@@ -217,6 +219,19 @@ bool openStream(Stream& s, const std::string& device, snd_pcm_stream_t dir, int 
   printf("%-8s \"%s\" : %u Hz, %s, %u canaux, periode %u (%.2f ms), tampon %u images (%u periodes)\n", streamLabel(dir),
          device.c_str(), rate, snd_pcm_format_name(s.format), channels, static_cast<unsigned int>(period), periodMs,
          s.bufferFrames, static_cast<unsigned int>(buf / period));
+
+  // A period this short over a server that runs on its own quantum is not a small
+  // latency, it is a stream the server has to keep feeding in pieces: measured here in
+  // full duplex with the window open, 64 frames ran the playback dry several times a
+  // minute, 256 and 512 never once. What a listener hears from that is choppy output,
+  // and the advice is a flag, not a rebuild.
+  if (serverBacked && period < 256)
+    printf(
+      "%-8s : attention : %u images par periode sur un peripherique du serveur son :"
+      "\n         le serveur taille a sa periode a lui, ce flux se videra par instants."
+      "\n         --period 256 est propre dans nos mesures ; pour plus court, prends la carte"
+      "\n         en direct (front: ou plughw:) ou regle le quantum du serveur.\n",
+      streamLabel(dir), static_cast<unsigned int>(period));
 
   return true;
 }
