@@ -320,6 +320,15 @@ which is the stack `git log` in iPlug2 records. Two screenshots two seconds apar
 with live audio say the rest: before, 0 pixels of the window differ and the columns are
 dark; after, 11 363 pixels move and the IN and OUT bars come up lit.
 
+That comparison is a script now, run against the shipped package rather than the build
+tree: `test/meter-motion-test.bash` starts the AppImage headless on a throwaway PipeWire
+sink — the tone enters through `--in-file`, so no capture card opens and nothing reaches
+the speakers — dumps three frames of its window, and counts the lit segments of the two
+columns in each. The tone steps loud/quiet every 0.4 s, so a column has a reason to change
+height: the AppImage from `v1.3.1-linux.3` reads 44 → 16 → 44 segments for IN and
+40 → 16 → 40 for OUT and passes, while the bundle that `~/.vst3` was holding from before
+the fix reads 0 segments in both, 0 pixels of the window changing, and fails.
+
 ### The standalone application
 
 `volum-app` is the Linux counterpart of the `VoLum.exe` / `VoLum.app` upstream ships: run it
@@ -600,6 +609,7 @@ NeuralAmpModeler/linux/tools/volum-app.cpp     # the standalone: bundle, app.con
 NeuralAmpModeler/linux/tools/portal-check.cpp  # drives the portal client exactly as the plug-in does
 NeuralAmpModeler/linux/test/fake-portal.py     # a desktop that answers back, on a throwaway session bus
 NeuralAmpModeler/linux/test/portal-test.bash   # nine requests, thirteen checks, nobody clicking
+NeuralAmpModeler/linux/test/meter-motion-test.bash  # the IN/OUT columns, measured in the package's own window
 NeuralAmpModeler/VoLumPaths.h           # __linux__ branches: rigs, settings, update state
 NeuralAmpModeler/NeuralAmpModeler.cpp   # null-checks for tag lookups during createView()/attached()
 iPlug2 (branch volum/linux-port)
