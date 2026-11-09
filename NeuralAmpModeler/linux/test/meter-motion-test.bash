@@ -51,6 +51,10 @@ if [ -d "$target" ]; then
   appimage=$(find "$target" -maxdepth 1 -name "VoLum-linux-x86_64-*.AppImage" | head -1)
   [ -n "$appimage" ] || appimage=""
   if [ -n "$appimage" ]; then
+    # `gh release download` leaves the executable bit off, and the point of this
+    # test is the file someone downloads - so put the bit back instead of
+    # testing a copy of it somewhere else.
+    [ -x "$appimage" ] || chmod +x "$appimage"
     run=("$appimage" --appimage-extract-and-run)
   else
     bundle="$target/VoLum.vst3"
@@ -60,7 +64,10 @@ if [ -d "$target" ]; then
   fi
 elif [ -f "$target" ]; then
   case "$target" in
-    *.AppImage) run=("$target" --appimage-extract-and-run) ;;
+    *.AppImage)
+      [ -x "$target" ] || chmod +x "$target"
+      run=("$target" --appimage-extract-and-run)
+      ;;
     *) run=("$here/../../../build/linux/volum-app" --module "$target") ;;
   esac
 else
