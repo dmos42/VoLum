@@ -55,6 +55,14 @@ repo="$(cd "$here/../../.." && pwd)"
 build="${1:-"$repo/build/linux"}"
 out="${2:-"$repo/build/linux-appimage"}"
 
+# Made absolute on purpose. appimagetool names its side artifacts - the .zsync an updater
+# reads - after the destination it is given, and a relative destination resolves against the
+# working directory rather than the image: building from the repository root with
+# `build/linux-appimage/VoLum…` as the target left the .zsync lying at the root, beside the
+# checkout, while the build directory had no idea it existed.
+mkdir -p "$out"
+out="$(cd "$out" && pwd)"
+
 if [ ! -x "$build/volum-app" ]; then
   echo "volum-app absent de $build : construis d'abord (cmake --build build/linux)"
   exit 1
@@ -133,7 +141,8 @@ if [ ! -x "$toolpath" ]; then
 fi
 
 name="VoLum-linux-${arch}-${version}.AppImage"
-rm -f "$out/$name" "$out/$name.zsync"
+img="$out/$name"
+rm -f "$img" "$img.zsync"
 
 # appimagetool is itself an AppImage, so it wants FUSE to start - and a GitHub runner, or a
 # build container, has none. `--appimage-extract-and-run` is the same tool with a temporary
@@ -163,45 +172,58 @@ chmod +x "$appdir/AppRun" "$appdir/usr/bin/volum-app"
 toolargs=(--comp zstd)
 if [ -n "$update_info" ]; then
   toolargs+=(-u "$update_info")
-  # appimagetool's own wording: "-u STRING; if zsyncmake is installed, generate zsync file".
-  # So asking for update information is only half of it - the .zsync the updater reads is
-  # made by zsyncmake, which is not part of appimagetool and is not installed here. On CI it
-  # is (the package is `zsync`), which is why VOLUM_REQUIRE_ZSYNC=1 turns its absence into a
-  # failed build there: an image that announces an update channel with nothing behind it is
-  # worse than one that announces nothing.
-  if command -v zsyncmake >/dev/null 2>&1; then
-    echo "zsyncmake : $(command -v zsyncmake)"
-  elif [ "${VOLUM_REQUIRE_ZSYNC:-0}" = "1" ]; then
-    echo "update information demandee mais zsyncmake absent (paquet zsync) : la CI doit l'installer"
-    exit 1
-  else
-    echo "attention : zsyncmake absent, l'image portera l'update information sans .zsync a cote"
-  fi
+  # appimagetool's own help says the .zsync is produced "if zsyncmake is installed", and what
+  # "installed" means here is inside appimagetool's own image rather than on this machine's
+  # PATH - which is why the file is not looked for before the build but insisted on after it,
+  # next to the image it describes. VOLUM_REQUIRE_ZSYNC=1 is what CI sets: an image that
+  # announces an update channel with nothing behind it is worse than one that announces
+  # nothing, and the release notes' fingerprints are worth less than a real updater.
+  :
 fi
 
-ARCH="$arch" "${toolrun[@]}" "${toolargs[@]}" "$appdir" "$out/$name" || {
+# Run the tool from inside the output directory, because that is where it writes what it
+# produces beside the image: measured here with an absolute destination given, the `.zsync`
+# still appeared in the directory the build was started from (twice: the repository root,
+# which is where nobody looks for it and where `git status` finds it immediately). One `cd`,
+# and both files land where the release step will look for them.
+(
+  cd "$out" || exit 1
+  ARCH="$arch" "${toolrun[@]}" "${toolargs[@]}" "$appdir" "$name"
+) || {
   echo "appimagetool a echoue ($toolpath)"
   exit 1
 }
 
-ls -l "$out/$name"
+# Belt and braces for the same behaviour from a different direction: if a .zsync did turn up
+# at the caller's working directory, it belongs beside the image, not there.
+if [ -s "$name.zsync" ] && [ "$out" != "$(pwd)" ]; then
+  mv -f "$name.zsync" "$img.zsync"
+  echo "deplace : $(basename "$img").zsync (appimagetool l'avait ecrit dans $(pwd))"
+fi
+
+ls -l "$img"
 
 if [ -n "$update_info" ]; then
   # The update string is not a side file: it is an ELF section of the runtime glued in front
   # of the squashfs, so the finished image is what gets read. An image that says it can be
   # updated and carries nothing to update from is worse than one that says nothing.
-  embedded="$(readelf -p .upd_info "$out/$name" 2>/dev/null \
+  embedded="$(readelf -p .upd_info "$img" 2>/dev/null \
               | sed -n 's/^ *\[[ 0-9a-f]*\] \(.*\)$/\1/p' | head -1)"
   case "$embedded" in
     *zsync*) echo "verifie : update information dans l'image -> $embedded" ;;
     *) echo "l'image ne contient pas l'update information demandee ($update_info)"; exit 1 ;;
   esac
-  if [ -s "$out/$name.zsync" ]; then
-    ls -l "$out/$name.zsync"
+  if [ -s "$img.zsync" ]; then
+    # And the .zsync is the half an updater can actually read: the image announces a channel,
+    # this is what is in it. Checked by name and by content, since a file left at the working
+    # directory by a relative destination would satisfy the name test and serve nobody.
+    grep -q "^URL: ${name}$" "$img.zsync" \
+      || echo "attention : le .zsync n'annonce pas $(basename "$img") comme URL ($(sed -n 's/^URL: //p' "$img.zsync" | head -1))"
+    ls -l "$img.zsync"
   elif [ "${VOLUM_REQUIRE_ZSYNC:-0}" = "1" ]; then
     echo "pas de .zsync a cote de l'image : l'updater saurait quoi chercher mais n'aurait rien a lire"
     exit 1
   else
-    echo "pas de .zsync (zsyncmake absent) : cette image se teste, elle ne se publie pas"
+    echo "pas de .zsync : cette image se teste, elle ne se publie pas (VOLUM_REQUIRE_ZSYNC=1 en decide autrement)"
   fi
 fi
