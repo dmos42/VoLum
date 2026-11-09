@@ -143,9 +143,13 @@ scans (`VOLUM_INSTALL_DIR` overrides it, e.g. `-DVOLUM_INSTALL_DIR=/usr/local/li
 
 ```
 ~/.local/bin/volum-app                             the program
-~/.local/share/applications/volum.desktop           its menu entry
-~/.local/share/icons/hicolor/*/apps/volum.png       its icon, six sizes
-~/.vst3/VoLum.vst3                                  the bundle the program loads
+~/.local/share/applications/com.github.guitarlum.VoLum.desktop
+                                                   its menu entry
+~/.local/share/icons/hicolor/*/apps/com.github.guitarlum.VoLum.png
+                                                   its icon, six sizes
+~/.local/share/metainfo/com.github.guitarlum.VoLum.metainfo.xml
+                                                   what a software centre says about it
+~/.vst3/VoLum.vst3                                 the bundle the program loads
 ```
 
 The default prefix is per-user — `~/.local`, which is already on `PATH` on Fedora and
@@ -163,8 +167,19 @@ the entry and the icons to `/usr/bin` and `/usr/share`, and
 thing into a build root, which is what an RPM, a tarball and an AppImage all do
 ([issue #4](https://github.com/dmos42/VoLum/issues/4)). Checked both ways here: staged into
 a `/usr` root the tree comes out as `/usr/bin/volum-app`,
-`/usr/share/applications/volum.desktop` (which `desktop-file-validate` accepts) and six
-icons under `/usr/share/icons/hicolor`.
+`/usr/share/applications/com.github.guitarlum.VoLum.desktop` (which
+`desktop-file-validate` accepts), six icons under `/usr/share/icons/hicolor` and the
+metainfo under `/usr/share/metainfo` — and `appstreamcli validate-tree` on that root is a CI
+step, not a hope.
+
+Those three file names are one name. `com.github.guitarlum.VoLum` is the AppStream component
+id, and the spec wants it to be the stem of the `.desktop` file, of the icon the entry's
+`Icon=` line resolves to, and of the `.metainfo.xml` — an entry whose icon is installed under
+another name installs happily and shows a generic picture forever, which is the kind of defect
+nothing in a build log sees. The id follows the upstream project so that a Linux build
+accepted by `guitarlum/VoLum` later keeps the same identity in people's software centres; the
+fork is only what ships one today, which is why the metainfo's bug tracker is the fork's
+([issue #14](https://github.com/dmos42/VoLum/issues/14)).
 
 The icon is the artwork the Windows and macOS builds already ship
 (`NeuralAmpModeler.ico`, taken at six sizes). VoLum draws its own wordmark inside the
@@ -547,14 +562,26 @@ Not implemented yet, each with a `TODO(linux)` at the site:
   [`volum-app`](#the-standalone-application), a host of this repository's own that loads the
   very same bundle — the same window, the same engine, one fewer dependency on a toolkit that
   does not exist for Linux yet. Choosing between the two is [issue #5](https://github.com/dmos42/VoLum/issues/5).
-  VST3 only — no AU, CLAP, LV2 or JIT for now.
+  VST3 only — no AU (which is Apple-only), CLAP or LV2 for now; the wrappers on Linux are
+  [issue #9](https://github.com/dmos42/VoLum/issues/9).
 * The window is X11 (GLX). On a Wayland desktop it runs through XWayland, so a Wayland-only
   compositor works but the window is an X11 one: no client-side decorations, and window
-  tiling/PICT scaling follows XWayland.
+  tiling and scaling follow XWayland. A native platform layer on the same `IGraphics`
+  interface is [issue #12](https://github.com/dmos42/VoLum/issues/12).
 * Menus and text entry are drawn in-app by iPlug 2 (`IPopupMenuControl`,
   `ITextEntryControl`), not by the toolkit.
 * Not covered: MIDI 2, multiple simultaneous instances tested under a real host, HiDPI
-  fractional scaling, ARM (`aarch64-linux` is wired up in `CMakeLists.txt` but never built).
+  fractional scaling, ARM (`aarch64-linux` is wired up in `CMakeLists.txt` but never built) —
+  [issue #6](https://github.com/dmos42/VoLum/issues/6). And in `volum-app` there is no MIDI
+  source at all: a DAW hands the plug-in its MIDI, the standalone has nobody to, which is
+  [issue #11](https://github.com/dmos42/VoLum/issues/11).
+* `volum-app` has no settings window: the device, the period and the gain are
+  `~/.config/VoLum/app.conf` keys, and `--list` prints the names you then have to type there —
+  [issue #10](https://github.com/dmos42/VoLum/issues/10).
+* The package is built by hand on one machine, carries no `updateinformation`, no AppStream
+  metadata and no signature: [issue #13](https://github.com/dmos42/VoLum/issues/13) for the CI
+  build and the updater metadata, [issue #14](https://github.com/dmos42/VoLum/issues/14) for
+  what to sign and with whose key.
 * Binary portability is not handled yet. The module inherits the C library of the machine that
   built it, and Fedora 44 (glibc 2.43) stamps even plain `sqrtf`/`atan2f`/`log10f` calls with
   `GLIBC_2.43`. A host running on an older sandboxed runtime then refuses the file at `dlopen`

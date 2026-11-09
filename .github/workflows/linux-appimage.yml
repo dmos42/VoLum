@@ -1,0 +1,199 @@
+name: Linux AppImage
+
+# Issue #13 asked for the obvious thing that was not happening: the 34 MB image on the release
+# page was made by hand, on one Fedora machine, and nothing but a line in the notes said what
+# it was made from. This job makes it from the recipe instead - `packaging/appimage.bash`, the
+# same install rules as `cmake --install`, the 249 rigs inside - and on a `*-linux*` tag it
+# publishes the image beside the VST3 zip, with the `.zsync` file the update information
+# embedded in the image needs to be worth having at all.
+#
+# The part worth reading is the smoke test. "The image starts" is not what an AppImage breaks
+# on; what breaks is the package loading some other copy of the plug-in, or the bundle inside
+# it being stale. So the packaged program is run over a test tone, and its WAV is compared
+# byte for byte with the same tone through the unpackaged build - one engine, two hosts, and
+# now a third that is the shipped file. The window then opens on Xvfb from inside the package,
+# which is the half the file-to-file run cannot see.
+#
+# Deliberate difference from the `Linux VST3` job: rigs included (`-DVOLUM_COPY_RIGS=OFF` is
+# not passed), because the point of an AppImage is that a guitar goes in and an amp comes out
+# with nothing else to install.
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - volum/linux-port
+      - linux/**
+    tags:
+      - "v*-linux*"
+
+concurrency:
+  group: linux-appimage-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DEBIAN_FRONTEND: noninteractive
+
+jobs:
+  appimage:
+    name: Linux AppImage (package, smoke, publish on a tag)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # release assets on a tag; nothing else reads or writes releases here
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Check out submodules
+        run: bash NeuralAmpModeler/scripts/checkout-submodules.sh
+        shell: bash
+
+      - name: Download the VST3 SDK
+        # Same step and same working-directory caveat as the plug-in job: the script clones
+        # into $PWD/VST3_SDK and finishes with `git checkout README.md`.
+        working-directory: iPlug2/Dependencies/IPlug
+        run: bash download-vst3-sdk.sh
+        shell: bash
+
+      - name: Install what packaging needs
+        # squashfs-tools builds the image; zsync is what makes the .zsync file, without which
+        # appimagetool embeds the update string and quietly produces nothing beside it - the
+        # recipe fails the build over that rather than shipping a promise it cannot keep.
+        # appstream and desktop-file-utils read the metadata the AppDir carries now. No libfuse:
+        # a runner has no /dev/fuse, and appimage.bash runs appimagetool through
+        # --appimage-extract-and-run in exactly that case.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build xvfb libx11-dev libgl1-mesa-dev libglu1-mesa-dev libatomic1 libasound2-dev \
+            libglib2.0-dev squashfs-tools zsync appstream desktop-file-utils zip
+        shell: bash
+
+      - name: Configure
+        run: cmake -S NeuralAmpModeler/linux -B build/linux -G Ninja -DCMAKE_BUILD_TYPE=Release
+        shell: bash
+
+      - name: Build
+        run: cmake --build build/linux
+        shell: bash
+
+      - name: Package with the recipe
+        env:
+          VOLUM_REQUIRE_ZSYNC: "1"
+        run: NeuralAmpModeler/linux/packaging/appimage.bash build/linux build/linux-appimage
+        shell: bash
+
+      - name: Read back what the finished image claims about itself
+        # Three claims an AppImage makes and a build log cannot make for it: the update
+        # information inside its runtime, the AppStream metadata a software centre reads, and
+        # the desktop entry the menu uses. All of them are checked against the bytes of the
+        # file that would be published, not against the AppDir they were assembled from.
+        run: |
+          set -o pipefail
+          image="$(ls "$GITHUB_WORKSPACE"/build/linux-appimage/VoLum-linux-x86_64-*.AppImage)"
+          echo "image : $image ($(stat -c %s "$image") octets)"
+          readelf -p .upd_info "$image" | grep -q 'zsync' \
+            || { echo "aucune update information dans $(basename "$image")"; exit 1; }
+          test -s "$image.zsync" || { echo "$(basename "$image").zsync absent"; exit 1; }
+          rm -rf /tmp/pkgout && mkdir -p /tmp/pkgout
+          (cd /tmp/pkgout && "$image" --appimage-extract >/dev/null)
+          test -s /tmp/pkgout/squashfs-root/usr/VoLum.vst3/Contents/x86_64-linux/VoLum.vst3.so
+          test -s /tmp/pkgout/squashfs-root/usr/share/metainfo/com.github.guitarlum.VoLum.metainfo.xml
+          test -s /tmp/pkgout/squashfs-root/usr/share/icons/hicolor/256x256/apps/com.github.guitarlum.VoLum.png
+          desktop-file-validate /tmp/pkgout/squashfs-root/usr/share/applications/com.github.guitarlum.VoLum.desktop
+          appstreamcli validate-tree /tmp/pkgout/squashfs-root | tail -3
+          rigs=$(find /tmp/pkgout/squashfs-root/usr/VoLum.vst3 -name '*.nam' | wc -l)
+          echo "captures d'ampli dans l'image : $rigs"
+          [ "$rigs" -ge 200 ] || { echo "l'image n'a pas le jeu de captures attendu"; exit 1; }
+        shell: bash
+
+      - name: Play a tone through the packaged program, and compare it with the same engine unpackaged
+        # The tone, the sample rate and the block path are the ones the plug-in job already
+        # uses. `--no-ui` keeps this headless; the file-to-file equality is what says the
+        # bundle inside the package is the bundle that was built, and not whatever else was
+        # lying around in ~/.vst3 on the machine that made it.
+        run: |
+          python3 - <<'PY'
+          import math, struct, wave
+          with wave.open('/tmp/ci-tone.wav', 'wb') as wav:
+              wav.setnchannels(2)
+              wav.setsampwidth(2)
+              wav.setframerate(48000)
+              frames = bytearray()
+              for i in range(48000):
+                  value = int(12000 * math.sin(2 * math.pi * 220 * i / 48000))
+                  frames += struct.pack('<hh', value, value)
+              wav.writeframes(bytes(frames))
+          PY
+          image="$(ls "$GITHUB_WORKSPACE"/build/linux-appimage/VoLum-linux-x86_64-*.AppImage)"
+          "$image" --appimage-extract-and-run \
+            --in-file /tmp/ci-tone.wav --out-file /tmp/pkg.wav --meter 0 --no-ui
+          test -s /tmp/pkg.wav
+          ./build/linux/volum-app \
+            --in-file /tmp/ci-tone.wav --out-file /tmp/eng.wav --meter 0 --no-ui
+          test -s /tmp/eng.wav
+          cmp /tmp/pkg.wav /tmp/eng.wav
+          echo "verifie : le paquet et le hors-paquet produisent le meme WAV ($(sha256sum /tmp/pkg.wav | cut -c1-8)…)"
+        shell: bash
+
+      - name: Open the packaged window on Xvfb
+        # Closing that window is how the program ends, and the plug-in's view is embedded in
+        # it: the same log line the plug-in job already insists on, this time from inside the
+        # published file, with its own bundle one level above bin/.
+        run: |
+          set -o pipefail
+          image="$(ls "$GITHUB_WORKSPACE"/build/linux-appimage/VoLum-linux-x86_64-*.AppImage)"
+          rm -rf /tmp/pkgwin && mkdir -p /tmp/pkgwin
+          (cd /tmp/pkgwin && "$image" --appimage-extract >/dev/null)
+          xvfb-run -a -s "-screen 0 1440x900x24" /tmp/pkgwin/squashfs-root/AppRun \
+            --in-file /tmp/ci-tone.wav --out-file /tmp/pkg-win.wav --meter 0 | tee /tmp/pkg-win.log
+          grep -q 'XEmbed confirme' /tmp/pkg-win.log
+          test -s /tmp/pkg-win.wav
+        shell: bash
+
+      - name: The zip a DAW wants, and the fingerprints of both
+        # The same two names the release page carries today, made here so the page's
+        # SHA256SUMS.txt stops being a transcription of a laptop.
+        run: |
+          version="$(sed -n 's/.*PLUG_VERSION_STR[[:space:]]*"\([^"]*\)".*/\1/p' NeuralAmpModeler/config.h | head -1)"
+          [ -n "$version" ] || { echo "version introuvable dans NeuralAmpModeler/config.h"; exit 1; }
+          ( cd build/linux && rm -f "../linux-appimage/VoLum-linux-x86_64-$version.vst3.zip" \
+            && zip -qr "../linux-appimage/VoLum-linux-x86_64-$version.vst3.zip" VoLum.vst3 )
+          cd build/linux-appimage
+          rm -f SHA256SUMS.txt
+          sha256sum VoLum-linux-x86_64-"$version".AppImage VoLum-linux-x86_64-"$version".vst3.zip > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+        shell: bash
+
+      - name: Upload the package as an artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VoLum-linux-appimage
+          path: |
+            build/linux-appimage/*.AppImage
+            build/linux-appimage/*.AppImage.zsync
+            build/linux-appimage/*.vst3.zip
+            build/linux-appimage/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish on the release for this tag
+        # Only a tag push reaches a release; a branch push leaves the files as artifacts.
+        # --clobber because re-running a tag is how a broken asset gets fixed in place, and a
+        # release with two AppImages of the same version in it is worse than one that changed.
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          gh release list --limit 1 >/dev/null 2>&1 || { echo "gh indisponible sur ce runner"; exit 1; }
+          gh release upload "$tag" \
+            build/linux-appimage/*.AppImage \
+            build/linux-appimage/*.AppImage.zsync \
+            build/linux-appimage/*.vst3.zip \
+            build/linux-appimage/SHA256SUMS.txt \
+            --clobber
+          gh release view "$tag" --json assets --jq '.assets[] | "\(.name) \(.size)"'
+        shell: bash

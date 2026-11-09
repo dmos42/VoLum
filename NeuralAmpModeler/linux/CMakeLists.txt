@@ -458,9 +458,17 @@ endif()
 # CMake to install a target it has not created yet installs nothing, quietly.
 # ---------------------------------------------------------------------------
 if(TARGET volum-app)
+  # Le nom d'application AppStream - com.github.guitarlum.VoLum - est a la fois le nom du
+  # fichier .desktop, celui des icones hicolor et celui du .metainfo.xml. Les regles ci
+  # dessous installent les trois cote a cote, et CI (comme le script d'AppImage) verifie
+  # qu'ils concordent : un .desktop dont l'`Icon=` ne designe aucune icone installee, ou un
+  # metainfo dont l'`<id>` differe du nom du .desktop, se voit refuser par le depot du
+  # bureau, pas par VoLum - donc c'est ici que ca doit se voir.
   install(TARGETS volum-app RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
-  install(FILES "${CMAKE_CURRENT_LIST_DIR}/packaging/volum.desktop"
+  install(FILES "${CMAKE_CURRENT_LIST_DIR}/packaging/com.github.guitarlum.VoLum.desktop"
     DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
+  install(FILES "${CMAKE_CURRENT_LIST_DIR}/packaging/com.github.guitarlum.VoLum.metainfo.xml"
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/metainfo")
   install(DIRECTORY "${CMAKE_CURRENT_LIST_DIR}/packaging/hicolor/"
     DESTINATION "${CMAKE_INSTALL_DATADIR}/icons/hicolor")
 

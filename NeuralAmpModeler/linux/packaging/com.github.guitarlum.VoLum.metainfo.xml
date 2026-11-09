@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata for the VoLum stand-alone (and, through it, the VST3 bundle it
+     carries). The id follows the upstream project - guitarlum/VoLum - so that a Linux build
+     accepted upstream later reuses the same component id, and the name of the .desktop file
+     and of the icons beside it; what ships that build today is the fork holding the Linux
+     port, which is why the bug tracker below is the fork's.
+
+     Two claims deliberately absent: MIDI (the stand-alone has no MIDI source, issue
+     https://github.com/dmos42/VoLum/issues/11) and any format other than VST3 (issue
+     https://github.com/dmos42/VoLum/issues/9). The description says what the artifact on the
+     release page does, measured by the probe harness and the packaged smoke run. -->
+<component type="desktop-application">
+  <id>com.github.guitarlum.VoLum</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+
+  <name>VoLum</name>
+  <summary>Guitar amplifier and NAM model player, alone or inside a DAW</summary>
+
+  <description>
+    <p>
+      VoLum loads neural amp captures in the .nam format - the same models the Neural Amp
+      Modeler project trains - and puts them where a guitar signal goes: a clean boost, an
+      overdriven pre, a cabinet, and the effects around them. Two hundred and forty-nine
+      captures come with it, from clean Fenders to high-gain Marshalls, and a capture you
+      trained yourself drops into its rig browser.
+    </p>
+    <p>
+      This package is the stand-alone program: it opens its own window, picks its own audio
+      device, and needs no host. The same window is what a DAW shows when it loads the VST3
+      bundle in `~/.vst3`, so the amp sounds and behaves the same either way.
+    </p>
+    <p>
+      On Linux it is X11 (it runs on a Wayland desktop through XWayland), talks to ALSA, and
+      asks the desktop's own portal for its file, folder and colour dialogs rather than
+      dragging a toolkit into a host's process.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">com.github.guitarlum.VoLum.desktop</launchable>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>VoLum's window: amp, rig list and level columns</caption>
+      <image type="source">https://raw.githubusercontent.com/dmos42/VoLum/volum/linux-port/NeuralAmpModeler/linux/volum-editor-x11.png</image>
+    </screenshot>
+  </screenshots>
+
+  <url type="homepage">https://github.com/guitarlum/VoLum</url>
+  <url type="bugtracker">https://github.com/dmos42/VoLum/issues</url>
+  <url type="vcs-browser">https://github.com/guitarlum/VoLum</url>
+  <url type="translate">https://github.com/guitarlum/VoLum</url>
+
+  <developer_name>Steffen Dangmann and VoLum contributors</developer_name>
+  <developer id="com.github.guitarlum">
+    <name>guitarlum</name>
+  </developer>
+
+  <categories>
+    <category>Audio</category>
+    <category>Music</category>
+  </categories>
+
+  <keywords>
+    <keyword>guitar</keyword>
+    <keyword>amplifier</keyword>
+    <keyword>amp modeler</keyword>
+    <keyword>cabinet</keyword>
+    <keyword>pedal</keyword>
+    <keyword>namm</keyword>
+    <keyword>rig</keyword>
+    <keyword>vst3</keyword>
+  </keywords>
+
+  <provides>
+    <binary>volum-app</binary>
+  </provides>
+
+  <releases>
+    <release version="1.3.1" date="2026-11-08">
+      <description>
+        <p>First packaged Linux build of this port: the stand-alone as one AppImage, and the
+        VST3 bundle as a zip, both carrying the same 249 bundled captures.</p>
+        <p>Measured, not assumed: the audio path, the editor window, host-side resizing, the
+        desktop's portal dialogs and the IN/OUT level columns are each checked by a headless
+        run in CI or by a script that counts lit pixels in the package's own window.</p>
+      </description>
+      <url type="details">https://github.com/dmos42/VoLum/releases/tag/v1.3.1-linux.3</url>
+    </release>
+  </releases>
+
+  <content_rating type="oars-1.1"/>
+</component>

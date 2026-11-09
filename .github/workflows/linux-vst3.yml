@@ -59,7 +59,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             ninja-build xvfb libx11-dev libgl1-mesa-dev libglu1-mesa-dev libatomic1 libasound2-dev \
-            libglib2.0-dev dbus dbus-daemon dbus-bin python3-gi gir1.2-glib-2.0 desktop-file-utils
+            libglib2.0-dev dbus dbus-daemon dbus-bin python3-gi gir1.2-glib-2.0 desktop-file-utils \
+            appstream
         shell: bash
 
       - name: Configure
@@ -104,16 +105,25 @@ jobs:
         # because an install rule aimed at a target that has not been created yet
         # installs nothing and says nothing while doing it - which is what this did the
         # first time, until the rules were moved below the host section.
+        #
+        # The three names of the application - the AppStream id, the .desktop file beside
+        # it, the icon that `Icon=` points at - are checked against each other rather than
+        # each on its own: a package that installs `volum.desktop` and an icon named
+        # something else looks fine and shows nothing in a menu or a software centre, and
+        # the only thing that notices is whatever reads the metadata.
         run: |
           rm -rf /tmp/stage
           DESTDIR=/tmp/stage cmake --install build/linux --prefix /usr
           test -x /tmp/stage/usr/bin/volum-app
-          test -s /tmp/stage/usr/share/applications/volum.desktop
-          test -s /tmp/stage/usr/share/icons/hicolor/256x256/apps/volum.png
-          test -s /tmp/stage/usr/share/icons/hicolor/48x48/apps/volum.png
+          test -s /tmp/stage/usr/share/applications/com.github.guitarlum.VoLum.desktop
+          test -s /tmp/stage/usr/share/icons/hicolor/256x256/apps/com.github.guitarlum.VoLum.png
+          test -s /tmp/stage/usr/share/icons/hicolor/48x48/apps/com.github.guitarlum.VoLum.png
+          test -s /tmp/stage/usr/share/metainfo/com.github.guitarlum.VoLum.metainfo.xml
           find /tmp/stage -name 'VoLum.vst3.so' | grep -q .
           test -L "$(find /tmp/stage -name 'VoLum.so' -type l | head -1)"
-          desktop-file-validate /tmp/stage/usr/share/applications/volum.desktop
+          desktop-file-validate /tmp/stage/usr/share/applications/com.github.guitarlum.VoLum.desktop
+          appstreamcli validate-tree /tmp/stage | tail -3
+          grep -q 'com.github.guitarlum.VoLum' /tmp/stage/usr/share/metainfo/com.github.guitarlum.VoLum.metainfo.xml
         shell: bash
 
       - name: Probe the audio path
