@@ -188,12 +188,22 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="${GITHUB_REF#refs/tags/}"
-          gh release list --limit 1 >/dev/null 2>&1 || { echo "gh indisponible sur ce runner"; exit 1; }
+          version="$(sed -n 's/.*PLUG_VERSION_STR[[:space:]]*"\([^"]*\)".*/\1/p' NeuralAmpModeler/config.h | head -1)"
+          # The page comes first, because a tag push has no release to upload into and
+          # `gh release upload` is not in the business of making one. Its text is the file
+          # tracked next to this recipe, so the release page and the repository cannot drift
+          # apart - which is the failure this had already once (the notes existed only inside
+          # build/, which git ignores).
+          gh release view "$tag" >/dev/null 2>&1 \
+            || gh release create "$tag" --verify-tag \
+                 --title "VoLum $version for Linux (x86_64)" \
+                 --notes-file NeuralAmpModeler/linux/packaging/release-notes.md
           gh release upload "$tag" \
             build/linux-appimage/*.AppImage \
             build/linux-appimage/*.AppImage.zsync \
             build/linux-appimage/*.vst3.zip \
             build/linux-appimage/SHA256SUMS.txt \
             --clobber
+          gh release edit "$tag" --latest
           gh release view "$tag" --json assets --jq '.assets[] | "\(.name) \(.size)"'
         shell: bash
