@@ -30,6 +30,13 @@ if(VOLUM_FORTIFY)
   add_compile_options(-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3)
 endif()
 
+# gcc 11 and 12 reject the member alias that renames the LanczosResampler template
+# (AudioDSPTools' ResamplingContainer.h: "declaration changes meaning"), which newer
+# gcc accepts; the AppImage job builds with gcc 12, so let it through there.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 13)
+  add_compile_options(-fpermissive)
+endif()
+
 set(PROJECT_DIR "${CMAKE_CURRENT_LIST_DIR}/..")
 get_filename_component(REPO_ROOT "${PROJECT_DIR}/.." ABSOLUTE)
 set(IPLUG2_ROOT "${REPO_ROOT}/iPlug2")
