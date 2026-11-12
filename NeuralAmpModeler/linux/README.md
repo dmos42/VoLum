@@ -12,9 +12,10 @@ X11 + GLX.
 Status of the port: the audio path, the VST3 wrapper, the editor window, mouse/keyboard
 input, in-app menus and text entry, clipboard, cursors and fonts all work, and so does the
 standalone: [`volum-app`](#the-standalone-application) is VoLum in a window of its own with no
-DAW in the way. The file / folder / colour dialogs and the native message box are still
-missing — see [Limitations](#limitations). Three command-line hosts are built alongside the
-plug-in: a probe that answers "does the module load and make sound?",
+DAW in the way. The file / folder / colour dialogs are the desktop's own, asked over the
+session bus, and the message box is drawn in-app — see
+[Dialogs the desktop owns](#dialogs-the-desktop-owns). Three command-line hosts are built
+alongside the plug-in: a probe that answers "does the module load and make sound?",
 [`volum-live`](#running-volum-without-a-daw), which plays the plug-in straight against ALSA,
 and `volum-app`, which is that same engine behind a window and nothing else to type.
 
@@ -33,8 +34,8 @@ the pedal artwork all come through NanoVG, so this is
 [`IGraphicsLinux.cpp`](../../iPlug2/IGraphics/Platforms/IGraphicsLinux.cpp) doing on X11 + GLX
 what the macOS and Windows backends do. What a still cannot show is the dialogs: the file,
 folder and colour prompts are the desktop's own, asked over the session bus
-([Dialogs the desktop owns](#dialogs-the-desktop-owns)), and the message box is still
-missing — see [Limitations](#limitations).
+([Dialogs the desktop owns](#dialogs-the-desktop-owns)), and the message box is drawn in-app
+by the same platform layer, the way the menus and the text entry are.
 
 ## Requirements
 
@@ -552,12 +553,13 @@ cancel, and a desktop that answers colours the old way.
 
 Not implemented yet, each with a `TODO(linux)` at the site:
 
-* `ShowMessageBox` returns without showing anything (`IGraphicsLinux.cpp:1211`). No portal
-  offers a modal message box, so this one has to be drawn in-app — issue #2. The file,
-  folder and colour prompts do work, through the portal
-  ([Dialogs the desktop owns](#dialogs-the-desktop-owns)); a session with no portal at all
-  — a headless runner, a build container — gets a line in the log and nothing on screen,
-  which is what `volum-vst3-probe` reports in CI.
+* The message box is drawn in-app, not by the desktop: no portal offers one, and a Qt
+  dialog is not worth a toolkit dependency inside a plug-in. `ShowMessageBox` therefore
+  answers `kNoResult` and fires its completion handler when a button is pressed, the way
+  the in-app menus answer when an item is picked; with no window at all — a headless
+  runner, a build container — it still just logs and answers. Checked headless by
+  `volum-msgbox-check`, which opens its own editor window on Xvfb and answers the box
+  with synthetic button events.
 * The macOS/Windows **standalone target** (`IPlugAPP`, whose host layer is SWELL) still does
   not build: SWELL has no Linux backend here. What ships instead is
   [`volum-app`](#the-standalone-application), a host of this repository's own that loads the

@@ -3700,6 +3700,28 @@ TEST_CASE("tier2h host undo refreshes the unsaved flag and Enter confirms off th
   RequireDoesNotContain(pickBody, "if (volum::content::DefaultCaptureSelection(amp, s, c))");
 }
 
+TEST_CASE("tier2i the Linux platform draws its own message box instead of answering in silence")
+{
+  const std::string linux = ReadText(RepoRoot() / "iPlug2" / "IGraphics" / "Platforms" / "IGraphicsLinux.cpp");
+  const auto box = linux.find("class LinuxMessageBoxControl");
+  REQUIRE(box != std::string::npos);
+  const std::string platform = linux.substr(box);
+  RequireContains(platform, "void Draw(IGraphics& g) override");
+  RequireContains(platform, "void OnMouseDown(float x, float y, const IMouseMod& mod) override");
+  RequireContains(platform, "Dismiss(b.result)");
+  RequireContains(platform, "return kNoResult;");
+  RequireDoesNotContain(linux, "TODO(linux): show a native");
+
+  const std::string header = ReadText(RepoRoot() / "iPlug2" / "IGraphics" / "Platforms" / "IGraphicsLinux.h");
+  RequireContains(header, "GetMessageBoxButtonRect");
+
+  const std::string cmake = ReadText(RepoRoot() / "NeuralAmpModeler" / "linux" / "CMakeLists.txt");
+  RequireContains(cmake, "volum-msgbox-check");
+
+  const std::string workflow = ReadText(RepoRoot() / ".github" / "workflows" / "linux-vst3.yml");
+  RequireContains(workflow, "volum-msgbox-check");
+}
+
 TEST_CASE("tier2h macOS alert swap matches the panel and WinMM drops a status-less byte")
 {
   const std::string mac = ReadText(RepoRoot() / "iPlug2" / "IGraphics" / "Platforms" / "IGraphicsMac.mm");

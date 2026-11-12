@@ -60,7 +60,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             ninja-build xvfb libx11-dev libgl1-mesa-dev libglu1-mesa-dev libatomic1 libasound2-dev \
             libglib2.0-dev dbus dbus-daemon dbus-bin python3-gi gir1.2-glib-2.0 desktop-file-utils \
-            appstream
+            appstream fonts-dejavu-core
         shell: bash
 
       - name: Configure
@@ -97,6 +97,20 @@ jobs:
           [ "$code" -eq 0 ] || exit "$code"
           printf '%s\n' "$out" | grep -q 'controles, aucun clic' \
             || { echo "le test du portail n'a rien verifie : il lui faut dbus et python3-gi"; exit 1; }
+        shell: bash
+
+      - name: Check the in-app message box answers
+        # The box the platform draws itself (issue #2): its own editor window on Xvfb,
+        # a ShowMessageBox that must not answer inline, a press off the buttons that
+        # must not dismiss it, and OK/Yes/No answered through the completion handler.
+        # The button rects come from the platform, so no font metric is duplicated.
+        run: |
+          out="$(xvfb-run -a build/linux/volum-msgbox-check 2>&1)"
+          code=$?
+          printf '%s\n' "$out"
+          [ "$code" -eq 0 ] || exit "$code"
+          printf '%s\n' "$out" | grep -q 'boite de message conforme' \
+            || { echo "le check n'a rien verifie : il lui faut un serveur X"; exit 1; }
         shell: bash
 
       - name: Stage a system installation

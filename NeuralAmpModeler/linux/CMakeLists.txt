@@ -451,6 +451,57 @@ if(VOLUM_BUILD_PORTAL_CHECK AND VOLUM_GIO_FOUND)
 endif()
 
 # ---------------------------------------------------------------------------
+# volum-msgbox-check drives the in-app message box the platform layer draws
+# (issue #2): its own editor window, a ShowMessageBox, and synthetic button
+# events answered the way the probe clicks a plug-in's window. The button rects
+# come from the platform itself, so the test carries no font metrics of its own.
+# ---------------------------------------------------------------------------
+
+option(VOLUM_BUILD_MSGBOX_CHECK "Build volum-msgbox-check, the headless message-box check" ON)
+
+if(VOLUM_BUILD_MSGBOX_CHECK)
+  add_executable(volum-msgbox-check
+    "${CMAKE_CURRENT_LIST_DIR}/tools/msgbox-check.cpp"
+    ${IGRAPHICS_SOURCES}
+  )
+
+  target_include_directories(volum-msgbox-check PRIVATE
+    "${IPLUG2_ROOT}/IPlug"
+    "${IPLUG2_ROOT}/IPlug/Extras"
+    "${IPLUG2_ROOT}/IGraphics"
+    "${IPLUG2_ROOT}/IGraphics/Controls"
+    "${IPLUG2_ROOT}/IGraphics/Drawing"
+    "${IPLUG2_ROOT}/IGraphics/Platforms"
+    "${IPLUG2_ROOT}/WDL"
+    "${DEPS_PATH}/IGraphics/NanoVG/src"
+  )
+  target_compile_definitions(volum-msgbox-check PRIVATE
+    IGRAPHICS_NANOVG
+    IGRAPHICS_GL2
+    RELEASE $<$<NOT:$<CONFIG:Debug>>:NDEBUG>
+  )
+  target_compile_options(volum-msgbox-check PRIVATE
+    $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:GNU,Clang>>:-include;cstdlib;-Wno-deprecated-declarations>
+  )
+  target_link_libraries(volum-msgbox-check PRIVATE
+    OpenGL::GL
+    X11::X11
+    Threads::Threads
+    ${CMAKE_DL_LIBS}
+    ${VOLUM_LIBATOMIC}
+  )
+
+  if(VOLUM_GIO_FOUND)
+    target_compile_definitions(volum-msgbox-check PRIVATE VOLUM_HAVE_PORTAL=1)
+    target_sources(volum-msgbox-check PRIVATE "${IPLUG2_ROOT}/IGraphics/Platforms/IGraphicsLinuxPortal.cpp")
+    target_link_libraries(volum-msgbox-check PRIVATE PkgConfig::VOLUM_GIO)
+  endif()
+
+  set_target_properties(volum-msgbox-check PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+endif()
+
+# ---------------------------------------------------------------------------
 # What a user gets from `cmake --install build/linux`: the VST3 bundle where the
 # hosts look (VOLUM_INSTALL_DIR, ~/.vst3 by default), and the standalone where a
 # desktop looks - bin/, share/applications/, share/icons/hicolor/. These rules sit
