@@ -63,6 +63,13 @@ jobs:
         with:
           submodules: false
 
+      - name: Tell git the workspace is trusted
+        # In a container job the workspace arrives through a bind mount that keeps the
+        # host runner's uid, while every command here runs as root: git refuses the tree
+        # as "dubious ownership" before any submodule command can run.
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+        shell: bash
+
       - name: Check out submodules
         run: bash NeuralAmpModeler/scripts/checkout-submodules.sh
         shell: bash
