@@ -90,10 +90,12 @@ jobs:
         # --appimage-extract-and-run in exactly that case. binutils is the objdump that
         # reads the glibc floor back out of the finished binaries; the gh CLI is what the
         # publish step talks to the release page with, and the container has neither.
+        # cmake, the compiler and pkg-config are preinstalled on a runner image, not in
+        # the bare container this job now builds in.
         run: |
           apt-get update
           apt-get install -y --no-install-recommends \
-            ninja-build xvfb libx11-dev libgl1-mesa-dev libglu1-mesa-dev libatomic1 libasound2-dev \
+            build-essential cmake pkg-config ninja-build xvfb libx11-dev libgl1-mesa-dev libglu1-mesa-dev libatomic1 libasound2-dev \
             libglib2.0-dev squashfs-tools zsync appstream desktop-file-utils zip binutils curl gnupg
           mkdir -p -m 755 /etc/apt/keyrings
           curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \

@@ -474,6 +474,8 @@ if(VOLUM_BUILD_MSGBOX_CHECK)
     "${IPLUG2_ROOT}/IGraphics/Platforms"
     "${IPLUG2_ROOT}/WDL"
     "${DEPS_PATH}/IGraphics/NanoVG/src"
+    "${DEPS_PATH}/IGraphics/NanoSVG/src"
+    "${DEPS_PATH}/IGraphics/STB"
   )
   target_compile_definitions(volum-msgbox-check PRIVATE
     IGRAPHICS_NANOVG
