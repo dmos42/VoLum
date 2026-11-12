@@ -462,6 +462,11 @@ option(VOLUM_BUILD_MSGBOX_CHECK "Build volum-msgbox-check, the headless message-
 if(VOLUM_BUILD_MSGBOX_CHECK)
   add_executable(volum-msgbox-check
     "${CMAKE_CURRENT_LIST_DIR}/tools/msgbox-check.cpp"
+    # The graphics layer reaches into iPlug's parameter, path and timer code; the
+    # VST3-specific sources of IPLUG_SOURCES stay out, this client hosts no plug-in.
+    "${IPLUG2_ROOT}/IPlug/IPlugParameter.cpp"
+    "${IPLUG2_ROOT}/IPlug/IPlugPaths.cpp"
+    "${IPLUG2_ROOT}/IPlug/IPlugTimer.cpp"
     ${IGRAPHICS_SOURCES}
   )
 
