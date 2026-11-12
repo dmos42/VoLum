@@ -69,8 +69,9 @@ no `.zsync` beside it. Nothing updates by itself: it is offered, and you accept.
 **Needs:** x86_64 Linux, X11 with GLX (an X11 session, or Wayland through XWayland), ALSA. The
 AppImage additionally needs FUSE to mount, or it must be run as
 `./VoLum-linux-x86_64-1.3.1.AppImage --appimage-extract-and-run`. The C library floor belongs
-to the machine that built the file, and this one was built on GitHub's Ubuntu runner — read it
-before blaming the package for an older install:
+to the machine that built the file, and this one was built in the CI job's Ubuntu 22.04
+container, so the floor is glibc 2.35 — read it back before blaming the package for an older
+install:
 
 ```bash
 objdump -T VoLum.vst3/Contents/x86_64-linux/VoLum.vst3.so | grep -o 'GLIBC_2\.[0-9]*' | sort -Vu | tail -1

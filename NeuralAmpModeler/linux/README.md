@@ -404,9 +404,10 @@ username it just refused to ship.
 
 The floor is the machine's, not the bundle's: it needs X11 with GLX, ALSA, FUSE (or
 `--appimage-extract-and-run`), and a glibc at least as new as the one it was linked against
-(GLIBC_2.38 as of this writing). The rigs ride inside it — 249 `.nam` files, most of the
-image's size — which is what makes the first run read its amp model through a squashfs mount
-instead of a directory.
+(GLIBC_2.35 — the image is linked in CI inside an Ubuntu 22.04 container, and the job fails
+if a symbol from a newer one creeps in). The rigs ride inside it — 249 `.nam` files, most of
+the image's size — which is what makes the first run read its amp model through a squashfs
+mount instead of a directory.
 
 ## The probe harness
 
@@ -578,17 +579,17 @@ Not implemented yet, each with a `TODO(linux)` at the site:
 * `volum-app` has no settings window: the device, the period and the gain are
   `~/.config/VoLum/app.conf` keys, and `--list` prints the names you then have to type there —
   [issue #10](https://github.com/dmos42/VoLum/issues/10).
-* The package is built by hand on one machine, carries no `updateinformation`, no AppStream
-  metadata and no signature: [issue #13](https://github.com/dmos42/VoLum/issues/13) for the CI
-  build and the updater metadata, [issue #14](https://github.com/dmos42/VoLum/issues/14) for
-  what to sign and with whose key.
-* Binary portability is not handled yet. The module inherits the C library of the machine that
-  built it, and Fedora 44 (glibc 2.43) stamps even plain `sqrtf`/`atan2f`/`log10f` calls with
-  `GLIBC_2.43`. A host running on an older sandboxed runtime then refuses the file at `dlopen`
-  without saying why: Carla 2.5.10 Flatpak (runtime glibc 2.42) reports only
-  `No plugins found`. `libstdc++` is not the constraint (the module needs at most
-  `GLIBCXX_3.4.32`). Build anything you hand out on an older base — a Fedora 42 or Debian 12
-  container is enough — and check the ceiling with
+* The package carries no signature: the AppImage, its `.zsync`, the VST3 zip and
+  `SHA256SUMS.txt` are built and published by CI
+  ([issue #13](https://github.com/dmos42/VoLum/issues/13)), but nothing proves who made
+  them — what to sign, and with whose key, is [issue #14](https://github.com/dmos42/VoLum/issues/14).
+* Binary portability is handled by where the artifact is built, not by the bundle: the
+  job that publishes on a tag links everything inside an Ubuntu 22.04 container
+  (glibc 2.35, GLIBCXX 3.4.30) and fails if `objdump` finds a symbol from a newer one in
+  any binary it ships. Anything built outside that job — a local build on a newer
+  distro — inherits that machine's C library, and a host on an older runtime refuses the
+  file at `dlopen` without saying why: Carla 2.5.10 Flatpak (runtime glibc 2.42) reports
+  only `No plugins found`. Check a hand-made build with
   `objdump -T .../VoLum.vst3.so | grep -o 'GLIBC_2\.[0-9]*' | sort -Vu | tail -1`. Issue #7.
 
 `volum-live` has limits of its own, and they are deliberate: no MIDI, one stereo pair of

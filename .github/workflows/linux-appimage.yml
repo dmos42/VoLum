@@ -38,9 +38,26 @@ jobs:
   appimage:
     name: Linux AppImage (package, smoke, publish on a tag)
     runs-on: ubuntu-latest
+    # Issue #7: what a machine can run is decided by the C library of the one that built
+    # the file. Fedora 44 stamped GLIBC_2.43 on plain sqrtf, and Carla's Flatpak runtime
+    # answered "No plugins found" without a word. Everything published on a tag is
+    # therefore linked inside the oldest base this port means to serve: Ubuntu 22.04
+    # (glibc 2.35, GLIBCXX_3.4.30), and a step below fails the build if any symbol from
+    # a newer one creeps back in.
+    container:
+      image: ubuntu:22.04
+      options: --user root
     permissions:
       contents: write # release assets on a tag; nothing else reads or writes releases here
     steps:
+      - name: Install git before the checkout
+        # The container image ships without git, and the submodule step after the checkout
+        # needs a real clone to update.
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates
+        shell: bash
+
       - name: Check out repository
         uses: actions/checkout@v4
         with:
@@ -63,12 +80,21 @@ jobs:
         # recipe fails the build over that rather than shipping a promise it cannot keep.
         # appstream and desktop-file-utils read the metadata the AppDir carries now. No libfuse:
         # a runner has no /dev/fuse, and appimage.bash runs appimagetool through
-        # --appimage-extract-and-run in exactly that case.
+        # --appimage-extract-and-run in exactly that case. binutils is the objdump that
+        # reads the glibc floor back out of the finished binaries; the gh CLI is what the
+        # publish step talks to the release page with, and the container has neither.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          apt-get update
+          apt-get install -y --no-install-recommends \
             ninja-build xvfb libx11-dev libgl1-mesa-dev libglu1-mesa-dev libatomic1 libasound2-dev \
-            libglib2.0-dev squashfs-tools zsync appstream desktop-file-utils zip
+            libglib2.0-dev squashfs-tools zsync appstream desktop-file-utils zip binutils curl gnupg
+          mkdir -p -m 755 /etc/apt/keyrings
+          curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+            -o /etc/apt/keyrings/githubcli-archive-keyring.gpg
+          echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+            > /etc/apt/sources.list.d/github-cli.list
+          apt-get update
+          apt-get install -y --no-install-recommends gh
         shell: bash
 
       - name: Configure
@@ -77,6 +103,30 @@ jobs:
 
       - name: Build
         run: cmake --build build/linux
+        shell: bash
+
+      - name: Read the glibc floor off the finished binaries
+        # The point of building in this container is the floor it stamps. Read it back out
+        # of every binary that ships and refuse anything newer than the container itself:
+        # a symbol from a newer glibc here would put "No plugins found" back on the
+        # machines this job exists for.
+        run: |
+          set -o pipefail
+          for binary in \
+            build/linux/VoLum.vst3/Contents/x86_64-linux/VoLum.vst3.so \
+            build/linux/volum-app \
+            build/linux/volum-live \
+            build/linux/volum-vst3-probe \
+            build/linux/volum-msgbox-check; do
+            [ -f "$binary" ] || continue
+            floor="$(objdump -T "$binary" | grep -o 'GLIBC_2\.[0-9]*' | sort -Vu | tail -1)"
+            cxxfloor="$(objdump -T "$binary" | grep -o 'GLIBCXX_3\.4\.[0-9]*' | sort -Vu | tail -1)"
+            echo "$(basename "$binary") : ${floor:-aucun symbole versionné} / ${cxxfloor:-aucun}"
+            [ "$(printf 'GLIBC_2.35\n%s\n' "$floor" | sort -Vu | tail -1)" = "GLIBC_2.35" ] \
+              || { echo "$binary exige $floor, plus récent que le glibc 2.35 du conteneur"; exit 1; }
+            [ "$(printf 'GLIBCXX_3.4.30\n%s\n' "$cxxfloor" | sort -Vu | tail -1)" = "GLIBCXX_3.4.30" ] \
+              || { echo "$binary exige $cxxfloor, plus récent que le GLIBCXX 3.4.30 du conteneur"; exit 1; }
+          done
         shell: bash
 
       - name: Package with the recipe
