@@ -7,6 +7,9 @@ name: Linux debug
 # back with a stack of every thread instead of a glibc one-liner.
 
 on:
+  push:
+    branches:
+      - volum/linux-port
   workflow_dispatch:
 
 env:
