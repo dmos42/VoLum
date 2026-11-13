@@ -1,18 +1,19 @@
-<!-- Le texte de cette page (https://github.com/dmos42/VoLum/releases/tag/v1.3.1-linux.5) .
+<!-- Le texte de cette page (https://github.com/dmos42/VoLum/releases/tag/v1.3.1-linux.6) .
      Le job `Linux AppImage` (.github/workflows/linux-appimage.yml) cree la page a partir de
      ce fichier quand un tag `v*-linux*` n'a pas encore de release, puis y depose les fichiers
      qu'il vient de construire : pousser un tag suffit, et texte et artifacts viennent du meme
      commit. Pour corriger la page sans pousser un nouveau tag :
-       gh release edit v1.3.1-linux.5 --repo dmos42/VoLum --notes-file \
+       gh release edit v1.3.1-linux.6 --repo dmos42/VoLum --notes-file \
            NeuralAmpModeler/linux/packaging/release-notes.md
      Les nombres cites viennent de test/meter-motion-test.bash, du probe, et du job lui-meme. -->
 
 VoLum 1.3.1 for Linux, x86_64: the VST3 a DAW loads, the LV2 and CLAP the other hosts load,
 and a stand-alone that needs no DAW at all.
-Same amp as [v1.3.1-linux.4](https://github.com/dmos42/VoLum/releases/tag/v1.3.1-linux.4) —
+Same amp as [v1.3.1-linux.5](https://github.com/dmos42/VoLum/releases/tag/v1.3.1-linux.5) —
 same 249 bundled captures, no audio code changed since — and what this one adds is the
-surfaces around the amp: the two host formats Linux had left, a MIDI input and a settings
-window for the stand-alone, and a message box that answers.
+shapes the amp can arrive in: the same four files a distribution package manager wants
+(a `/usr` tarball and two RPMs beside the AppImage), and a teardown that no longer trips
+itself up on exit.
 
 ## What is on this page, and who made it
 
@@ -28,7 +29,11 @@ uploads the artifacts into it.
 | `VoLum-linux-x86_64-1.3.1.vst3.zip` | the plug-in for a VST3 host — unpack it so the folder lands at `~/.vst3/VoLum.vst3` |
 | `VoLum-linux-x86_64-1.3.1.lv2.zip` | the plug-in for an LV2 host — unpack it so the folder lands at `~/.lv2/VoLum.lv2` |
 | `VoLum-linux-x86_64-1.3.1.clap.zip` | the plug-in for a CLAP host — unpack it and put the `VoLum.clap` file it contains at `~/.clap/VoLum.clap` |
-| `SHA256SUMS.txt` | made in the same job, over the four files above |
+| `VoLum-linux-x86_64-1.3.1.tar.gz` | the same tree as an installable `/usr`: stand-alone, VST3, LV2, CLAP, menu entry, icon, metainfo — `sudo tar -C / -xzf` it, or unpack it anywhere and copy `usr/` into the prefix of your choice |
+| `VoLum-rigs-1.3.1.tar.gz` | the 249 bundled captures alone, as `VoLum/VoLumRigs/` — into `/usr/share` for a system install or `~/.local/share` per user, both are folders the plug-in searches |
+| `volum-1.3.1-1.*.rpm` | the program above as an RPM for Fedora and openSUSE |
+| `volum-rigs-1.3.1-1.*.noarch.rpm` | the captures above as the matching noarch data RPM |
+| `SHA256SUMS.txt` | made in the same job, over the eight files above |
 
 Numbers from the run that produced them: the image holds 249 `.nam` captures, and the
 packaged program played a 48 kHz 220 Hz tone into a WAV that came out **byte for byte the
@@ -90,6 +95,51 @@ and reports "no seq driver" rather than failing on a runner that has no MIDI.
 anything on Linux. The box the platform draws itself now opens as its own editor window,
 refuses a press off the buttons, and answers through the completion handler — checked
 headless on Xvfb.
+
+## If an AppImage is not the shape you want
+
+The same build now ships as the files a package manager owns. `packaging/dist.bash` stages
+the install tree and cuts it three ways: a `/usr` tarball, and two RPMs built from it by the
+distro's own `rpmbuild` (`packaging/volum.spec`). The program and the captures travel
+separately on purpose - a 4 MB package and a 77 MB data set do not update on the same
+rhythm - so the data RPM (`volum-rigs`, noarch) installs beside the program one, or the
+rigs tarball unpacks into `~/.local/share` for a per-user install. Both destination folders
+are ones the plug-in already searches (`VoLumPaths.h`, `LinuxRigsCandidates`), so nothing
+about the plug-in had to change to find them.
+
+```bash
+sudo dnf install ./volum-1.3.1-1.*.rpm ./volum-rigs-1.3.1-1.*.noarch.rpm   # Fedora
+sudo zypper install ./volum-1.3.1-1.*.rpm ./volum-rigs-1.3.1-1.*.noarch.rpm # openSUSE
+```
+
+The job that makes the AppImage makes these too, and does not take their word for it: it
+unpacks the tarball into a throwaway root and runs `volum-app --check` from there, unpacks
+both RPMs with `rpm2cpio` and checks the same files landed in `/usr`, counts the 249
+`.nam` files in the rigs tarball, and hashes all eight release files into `SHA256SUMS.txt`.
+
+## What this release fixed under the floor
+
+The editor teardown used to abort the process intermittently - a glibc `corrupted size vs.
+prev_size` or `double free` a few teardowns in ten, never under ASan and never under gdb,
+whose scheduling hides it. Two defects, both fixed in the iPlug 2 fork this port carries:
+
+- **Two Xlib threads against an uninitialized display.** Xlib is single-threaded until
+  `XInitThreads()` says otherwise, and iPlug 2 called it when the graphics backend opened
+  its window - after the host's own Xlib use had already begun. The fork calls it at
+  static-init time, before any display opens (`da56e7e43` also makes the timer thread's
+  dispatcher hand-off race-free).
+- **The idle timer outlived the state it ticked.** The timer thread is created in the
+  `IPlugAPIBase` constructor and stopped in its destructor - which runs *last*, after the
+  derived plug-in's destructor has already freed what `OnIdle()` touches. Once the editor
+  window was closed, a tick landing in that window ran on the timer thread itself, against
+  members that were gone, and planted the corruption the host's final `release()` then
+  stepped on. `IPlugVST3::terminate()` - the SDK's signal that the host is done - now stops
+  the thread first, before any state is freed (`e6b71d97d`).
+
+The proof is a soak: the rig-import test, which loads the editor, imports a capture and
+tears it all down, looped twelve times per run in a plain Release build. Before the fix,
+three of six runs died mid-loop; after it, two runs of twelve passed clean, and the
+ASan + UBSan job - which runs the same import under both sanitizers - stays green.
 
 ## What the package tells your desktop
 
@@ -256,6 +306,6 @@ Each of these is an issue on this repository, and nothing above claims them:
 sha256sum -c SHA256SUMS.txt     # the assets on this page, produced by the job that produced the files
 ```
 
-`SHA256SUMS.txt` covers the AppImage and the three plug-in packages. It stopped being a
-transcription of a laptop two releases ago, which is the only reason a fingerprint is worth
-printing.
+`SHA256SUMS.txt` covers the eight files on this page - the AppImage, the three plug-in
+packages, the tarball, the rigs tarball and the two RPMs. It stopped being a transcription
+of a laptop three releases ago, which is the only reason a fingerprint is worth printing.
