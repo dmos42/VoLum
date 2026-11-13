@@ -54,9 +54,15 @@ jobs:
       - name: Loop the plain import test, catch a stack on failure
         env:
           MALLOC_CHECK_: 3
-          VOLUM_PROBE_WRAP: gdb -batch -ex 'set disable-randomization off' -ex run -ex 'echo \n=== STACKS ===\n' -ex 'thread apply all bt' -ex quit --args
         run: |
-          unset VOLUM_PROBE_WRAP
+          # The wrapper is a script, not a command string: the test expands
+          # VOLUM_PROBE_WRAP unquoted, so embedded quotes would reach gdb intact.
+          cat > /tmp/gdbwrap <<'EOF'
+          #!/bin/bash
+          exec gdb -batch -ex 'set disable-randomization off' -ex run \
+            -ex 'echo \n=== STACKS ===\n' -ex 'thread apply all bt' -ex quit --args "$@"
+          EOF
+          chmod +x /tmp/gdbwrap
           hit=0
           for i in $(seq 1 12); do
             echo "=== iteration $i ==="
@@ -76,7 +82,7 @@ jobs:
           fi
           echo "=== reprise sous gdb ==="
           code=0
-          out="$(NeuralAmpModeler/linux/test/rig-import-test.bash build/linux 2>&1)" || code=$?
-          printf '%s\n' "$out" | tail -120
+          out="$(VOLUM_PROBE_WRAP=/tmp/gdbwrap NeuralAmpModeler/linux/test/rig-import-test.bash build/linux 2>&1)" || code=$?
+          printf '%s\n' "$out" | tail -160
           exit "$code"
         shell: bash
