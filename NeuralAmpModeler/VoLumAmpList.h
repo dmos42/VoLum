@@ -16,6 +16,7 @@
 #include "VoLumColorHelpers.h"
 #include "VoLumCustomContentApi.h"
 #include "VoLumFractalArt.h"
+#include "VoLumHarnessEnv.h"
 #include "VoLumSecondPress.h"
 
 #include <algorithm>
@@ -579,6 +580,7 @@ private:
       // list. (Empty still adds on a whole-row click via HitTest.)
       const bool addHovered = (mHoveredZone == EZone::CustomAdd);
       const IRECT plus(header.R - 26.f, header.T, header.R - 6.f, header.B);
+      volum::HarnessDumpRect("amplist", 0, plus.L, plus.T, plus.R, plus.B, "add custom amp");
       if (addHovered)
       {
         // Empty -> the whole header row is the add target; populated -> only the
@@ -603,6 +605,7 @@ private:
 
       IRECT row(mRECT.L, top, rowR, bot);
       IRECT paddedRow = row.GetPadded(-2.f, -0.5f, -2.f, -0.5f);
+      volum::HarnessDumpRect("amplist", c + 1, row.L, row.T, row.R, row.B, mCustomNames[c].c_str());
 
       const bool selected = (c == mCustomSelected);
       const bool hovered = (mHoveredDomain == EDomain::Custom && c == mHovered);

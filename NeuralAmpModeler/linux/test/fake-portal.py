@@ -63,7 +63,10 @@ INTROSPECTION = """
 
 # URIs, as the portal spells them - a path is not a URI and the client says so.
 # The second one carries a space, which the client has to turn back into a path.
-DEFAULT_OPEN = ["file:///tmp/volum-fake/capture.nam", "file:///tmp/volum-fake/room%20ir.wav"]
+DEFAULT_OPEN = [
+    "file:///tmp/volum-fake/capture.nam",
+    "file:///tmp/volum-fake/room%20ir.wav",
+]
 FAKE_FOLDER = "/tmp/volum-fake"
 
 
@@ -80,7 +83,9 @@ def bytestring(value):
     """
     if isinstance(value, (bytes, bytearray)):
         raw = bytes(value)
-    elif isinstance(value, list) and all(isinstance(v, int) and 0 <= v < 256 for v in value):
+    elif isinstance(value, list) and all(
+        isinstance(v, int) and 0 <= v < 256 for v in value
+    ):
         raw = bytes(value)
     else:
         raise ValueError("expected an 'ay' of bytes, got %r" % (value,))
@@ -107,7 +112,9 @@ class FakePortal:
         except Exception as exc:  # noqa: BLE001 - a refusal is the test failing
             print("fake-portal: refused %s: %s" % (method, exc), file=sys.stderr)
             self.failed = True
-            invocation.return_dbus_error("org.freedesktop.DBus.Error.InvalidArgs", str(exc))
+            invocation.return_dbus_error(
+                "org.freedesktop.DBus.Error.InvalidArgs", str(exc)
+            )
             # Keep serving: a session bus activates a real portal the moment the name
             # is free, and the rest of the run would then be answering somebody else.
             return
@@ -117,7 +124,11 @@ class FakePortal:
 
         # Same spelling the real portal uses: a bus name inside an object path loses
         # its colon and its dots. ":1.7/volum1" would not be a path at all.
-        handle = "%s/request/%s/%s" % (ROOT_PATH, sender.lstrip(":").replace(".", "_"), token)
+        handle = "%s/request/%s/%s" % (
+            ROOT_PATH,
+            sender.lstrip(":").replace(".", "_"),
+            token,
+        )
         invocation.return_value(GLib.Variant("(o)", (handle,)))
 
         # A real desktop answers when a person clicks; a timer stands in for that
@@ -130,9 +141,17 @@ class FakePortal:
         try:
             self.emit_response(conn, sender, handle, method, options)
         except Exception as exc:  # noqa: BLE001
-            print("fake-portal: answering %s failed: %s" % (method, exc), file=sys.stderr)
+            print(
+                "fake-portal: answering %s failed: %s" % (method, exc), file=sys.stderr
+            )
             self.failed = True
-            conn.emit_signal(sender, handle, REQUEST_IFACE, "Response", GLib.Variant("(ua{sv})", (2, {})))
+            conn.emit_signal(
+                sender,
+                handle,
+                REQUEST_IFACE,
+                "Response",
+                GLib.Variant("(ua{sv})", (2, {})),
+            )
         return False
 
     def emit_response(self, conn, sender, handle, method, options):
@@ -146,7 +165,13 @@ class FakePortal:
                     results["color"] = GLib.Variant("(ddd)", (0.5, 0.25, 0.125))
             else:
                 results["uris"] = GLib.Variant("as", self.answer(method, options))
-        conn.emit_signal(sender, handle, REQUEST_IFACE, "Response", GLib.Variant("(ua{sv})", (code, results)))
+        conn.emit_signal(
+            sender,
+            handle,
+            REQUEST_IFACE,
+            "Response",
+            GLib.Variant("(ua{sv})", (code, results)),
+        )
         return False
 
     def answer(self, method, options):
@@ -157,7 +182,11 @@ class FakePortal:
             return [uri(self.saved)]
 
         if method != "SaveFile":
-            return [uri(FAKE_FOLDER)] if options.get("directory") is not None else self.paths
+            if options.get("directory") is not None:
+                return [uri(FAKE_FOLDER)]
+            # A path given on the command line is a convenience: the wire only ever
+            # carries URIs, so spell it the way the portal would.
+            return [p if p.startswith("file://") else uri(p) for p in self.paths]
 
         # A save answer is built from the hint the caller gave, so the test can see
         # that current_folder travelled correctly rather than being ignored.
@@ -191,7 +220,14 @@ class FakePortal:
             raise ValueError("handle_token %r is not a path element" % token)
 
         for key in options:
-            if key not in ("handle_token", "multiple", "directory", "filters", "current_folder", "current_name"):
+            if key not in (
+                "handle_token",
+                "multiple",
+                "directory",
+                "filters",
+                "current_folder",
+                "current_name",
+            ):
                 raise ValueError("unknown option %r" % key)
 
         if iface.endswith("Screenshot"):
@@ -202,11 +238,16 @@ class FakePortal:
 
         folder = options.get("current_folder")
         if folder is not None and not isinstance(folder, (bytes, bytearray, list)):
-            raise ValueError("current_folder arrived as %r; the portal wants an 'ay' path" % (folder,))
+            raise ValueError(
+                "current_folder arrived as %r; the portal wants an 'ay' path"
+                % (folder,)
+            )
 
         name = options.get("current_name")
         if name is not None and not isinstance(name, str):
-            raise ValueError("current_name arrived as %r; the portal wants an 's'" % (name,))
+            raise ValueError(
+                "current_name arrived as %r; the portal wants an 's'" % (name,)
+            )
 
         filters = options.get("filters")
         directory = options.get("directory")
@@ -245,22 +286,37 @@ class FakePortal:
             if not isinstance(patterns, list):
                 raise ValueError("filter %r carries %r, not a list" % (name, patterns))
             for pattern in patterns:
-                if not isinstance(pattern, (tuple, list)) or len(pattern) != 2 or not isinstance(pattern[1], str):
-                    raise ValueError("filter %r carries %r, not a (priority, pattern) pair" % (name, pattern))
+                if (
+                    not isinstance(pattern, (tuple, list))
+                    or len(pattern) != 2
+                    or not isinstance(pattern[1], str)
+                ):
+                    raise ValueError(
+                        "filter %r carries %r, not a (priority, pattern) pair"
+                        % (name, pattern)
+                    )
 
     def describe(self, method, title, options, parent_window=""):
         """One line per request, for the shell to assert on."""
         folder = options.get("current_folder")
         filters = options.get("filters")
-        return "request %s parent=%s title=%r multiple=%s directory=%s folder=%s name=%s filters=%s" % (
-            method,
-            parent_window or "-",
-            title,
-            options.get("multiple") is True,
-            options.get("directory") is True,
-            bytestring(folder).decode() if folder is not None else "-",
-            options.get("current_name") or "-",
-            "none" if filters is None else ";".join("%s:%s" % (name, ",".join(p[1] for p in patterns)) for name, patterns in filters),
+        return (
+            "request %s parent=%s title=%r multiple=%s directory=%s folder=%s name=%s filters=%s"
+            % (
+                method,
+                parent_window or "-",
+                title,
+                options.get("multiple") is True,
+                options.get("directory") is True,
+                bytestring(folder).decode() if folder is not None else "-",
+                options.get("current_name") or "-",
+                "none"
+                if filters is None
+                else ";".join(
+                    "%s:%s" % (name, ",".join(p[1] for p in patterns))
+                    for name, patterns in filters
+                ),
+            )
         )
 
     # --- bus plumbing -------------------------------------------------------
@@ -276,8 +332,12 @@ class FakePortal:
         conn = Gio.bus_get_sync(Gio.BusType.SESSION, None)
         node = Gio.DBusNodeInfo.new_for_xml(INTROSPECTION)
         for iface in node.interfaces:
-            conn.register_object(ROOT_PATH, iface, self.on_method_call, self.on_get_property, None)
-        Gio.bus_own_name_on_connection(conn, BUS_NAME, Gio.BusNameOwnerFlags.NONE, None, None)
+            conn.register_object(
+                ROOT_PATH, iface, self.on_method_call, self.on_get_property, None
+            )
+        Gio.bus_own_name_on_connection(
+            conn, BUS_NAME, Gio.BusNameOwnerFlags.NONE, None, None
+        )
         self.loop.run()
         return 1 if self.failed else 0
 

@@ -105,6 +105,25 @@ jobs:
             || { echo "le test du portail n'a rien verifie : il lui faut dbus et python3-gi"; exit 1; }
         shell: bash
 
+      - name: Import a rig through the sidebar, with nobody clicking
+        # The last inch of issue #1 (test/rig-import-test.bash): the probe's --click
+        # presses the PLAY->BUILD toggle (the sidebar only lives in BUILD), the
+        # sidebar's custom-amp "+", the builder's "Add .nam files" and "Save amp",
+        # and the scripted portal answers with a real capture. What is
+        # proven is the journey, not just the dialog: the capture lands in the user's
+        # content folder, the amp shows up in the sidebar without a restart, and a
+        # cancelled picker changes nothing. The button rects are read from the plug-in
+        # itself (VOLUM_TEST_DUMP), so the test does not carry pixels that a layout
+        # change would stale.
+        run: |
+          out="$(NeuralAmpModeler/linux/test/rig-import-test.bash build/linux 2>&1)"
+          code=$?
+          printf '%s\n' "$out"
+          [ "$code" -eq 0 ] || exit "$code"
+          printf '%s\n' "$out" | grep -q 'sans redemarrage' \
+            || { echo "le test d'import n'a rien verifie : il lui faut xvfb-run, dbus et python3-gi"; exit 1; }
+        shell: bash
+
       - name: Check the in-app message box answers
         # The box the platform draws itself (issue #2): its own editor window on Xvfb,
         # a ShowMessageBox that must not answer inline, a press off the buttons that

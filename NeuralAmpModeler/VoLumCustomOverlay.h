@@ -147,7 +147,16 @@ public:
   {
     mScreen = volum::custom::Screen::Builder;
     mBuilderEditIdx = editExisting ? editIdx : -1;
-    mBuilderAmp = (editExisting && editIdx >= 0) ? volum::custom::CustomAmpAt(editIdx) : NewBuilderAmp(ampName);
+    if (editExisting && editIdx >= 0)
+    {
+      mBuilderAmp = volum::custom::CustomAmpAt(editIdx);
+    }
+    else
+    {
+      const std::string seed =
+        (ampName && *ampName) ? std::string(ampName) : volum::HarnessEnv("VOLUM_TEST_BUILDER_NAME");
+      mBuilderAmp = NewBuilderAmp(seed.empty() ? nullptr : seed.c_str());
+    }
     mBuilderFileScroll = 0.f;
     ResetTransient();
     Hide(false);
@@ -584,6 +593,7 @@ private:
   {
     mHotspots.emplace_back(r, action);
     mHotspotTips.emplace_back(tip ? tip : "");
+    volum::HarnessDumpRect("overlay", action, r.L, r.T, r.R, r.B, tip);
   }
 
   void ResetTransient()
@@ -1511,8 +1521,14 @@ private:
     const IColor txt =
       disabled ? VoLumColors::CREAM_DIM : ((on || primary) ? VoLumColors::TEXT_BRIGHT : VoLumColors::CREAM);
     g.DrawText(IText(11.f, txt, "Josefin-Bold", EAlign::Center, EVAlign::Middle), label, r);
+    if (action >= 0)
+      volum::HarnessDumpRect("overlay", action, r.L, r.T, r.R, r.B,
+                             disabled ? (std::string("disabled: ") + (tip ? tip : "")).c_str() : (tip ? tip : ""));
     if (action >= 0 && !disabled)
-      AddHotspot(r, action, tip);
+    {
+      mHotspots.emplace_back(r, action);
+      mHotspotTips.emplace_back(tip ? tip : "");
+    }
   }
 
   // Footer hint clipped to the panel so long copy can never bleed past the frame.

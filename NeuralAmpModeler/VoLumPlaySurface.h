@@ -7,6 +7,7 @@
 #include "VoLumColorHelpers.h"
 #include "VoLumDiagLog.h"
 #include "VoLumFractalArt.h"
+#include "VoLumHarnessEnv.h"
 #include "VoLumHeaderChrome.h"
 #include "art/VoLumArtMotion.h"
 #include "VoLumNumericEntry.h"
@@ -102,6 +103,8 @@ public:
   void Draw(IGraphics& g) override
   {
     const volum::UiMode dest = Destination();
+    volum::HarnessDumpRect("toggle", 0, mRECT.L, mRECT.T, mRECT.R, mRECT.B,
+                           dest == volum::UiMode::Play ? "switch to PLAY" : "switch to BUILD");
     DrawVoLumSelection(g, mRECT, false, mMouseIsOver, VoLumSelectionStyle::Brass, 3.f, 1.5f);
     g.DrawRoundRect(VoLumColors::GOLD_DIM.WithOpacity(mMouseIsOver ? 0.95f : 0.72f), mRECT, 4.f, nullptr, 1.5f);
     const IColor ink =

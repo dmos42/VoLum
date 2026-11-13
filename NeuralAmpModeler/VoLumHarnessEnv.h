@@ -7,7 +7,16 @@
 //   VOLUM_PACK_SAVE_PATH / VOLUM_PACK_OPEN_PATH  Pack export / import (-Scenario pack)
 //   VOLUM_IMPORT_OPEN_PATHS                      Manage > Add for IRs and pedals,
 //                                                '|'-separated (-Scenario import)
+//   VOLUM_TEST_BUILDER_NAME                      Builder: seed the profile name of a
+//                                                new custom amp (the scripted editor
+//                                                cannot type into the name field)
+//   VOLUM_TEST_DUMP                              Append every clickable rect the two
+//                                                scripted controls register to this
+//                                                file, one tab-separated line each,
+//                                                so a headless test reads where to
+//                                                click instead of guessing pixels
 
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
@@ -34,6 +43,18 @@ inline std::string HarnessEnv(const char* name)
   const char* v = std::getenv(name);
   return v ? std::string(v) : std::string();
 #endif
+}
+
+inline void HarnessDumpRect(const char* kind, int action, float l, float t, float r, float b, const char* tip)
+{
+  const char* path = std::getenv("VOLUM_TEST_DUMP");
+  if (!path || !*path)
+    return;
+  if (FILE* f = fopen(path, "a"))
+  {
+    std::fprintf(f, "%s\t%d\t%.1f\t%.1f\t%.1f\t%.1f\t%s\n", kind, action, l, t, r, b, tip ? tip : "");
+    std::fclose(f);
+  }
 }
 
 inline std::vector<std::string> SplitHarnessPaths(const std::string& joined)
