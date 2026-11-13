@@ -48,6 +48,16 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 
+// Xlib's contract: XInitThreads must run before the process's first Xlib call, or
+// concurrent calls - even on separate Display connections - corrupt its internal
+// state, which surfaces as intermittent glibc heap corruption at teardown. Every
+// host here opens its own display before the plug-in's editor opens one, and
+// iPlug 2's own XInitThreads call (IGraphicsLinux.cpp) comes later still, so this
+// runs at static-init time, ahead of main().
+namespace volumlinux { namespace {
+[[maybe_unused]] const bool kXThreadsReady = XInitThreads() != 0;
+}}
+
 namespace volumlinux
 {
 
