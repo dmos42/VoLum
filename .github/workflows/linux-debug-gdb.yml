@@ -1,10 +1,10 @@
 name: Linux debug
 
-# One-off diagnosis harness, dispatched by hand: the rig-import test's phase 3
-# aborts in the Release build (double free at teardown or after the Save click)
-# and passes under ASan, which is the signature of a timing-dependent bug. This
-# workflow runs the same test with the probe wrapped in gdb, so the abort comes
-# back with a stack of every thread instead of a glibc one-liner.
+# One-off diagnosis harness: the rig-import test's phase 3 aborts in the plain
+# Release build (glibc: "double free detected in tcache 2") and passes under both
+# ASan and gdb, which points at a timing- or layout-dependent teardown bug. This
+# workflow reproduces the plain build's crash with core dumps enabled and prints
+# the stack of every thread from the core, which is the evidence the CI log lacks.
 
 on:
   push:
@@ -16,8 +16,8 @@ env:
   DEBIAN_FRONTEND: noninteractive
 
 jobs:
-  gdb:
-    name: rig import under gdb
+  coredump:
+    name: rig import, core dump on abort
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -49,12 +49,25 @@ jobs:
           cmake --build build/linux
         shell: bash
 
-      - name: Run the import test under gdb
-        env:
-          VOLUM_PROBE_WRAP: gdb -batch -ex run -ex 'thread apply all bt' -ex quit --args
+      - name: Run the import test with core dumps on
         run: |
+          # The runner VM allows sudo, so the core goes to a known absolute path
+          # instead of whatever systemd-coredump would do with it.
+          sudo sysctl -w kernel.core_pattern=/tmp/core.%p
+          ulimit -c unlimited
           code=0
           out="$(NeuralAmpModeler/linux/test/rig-import-test.bash build/linux 2>&1)" || code=$?
           printf '%s\n' "$out"
+          echo "--- cores ---"
+          ls -l /tmp/core.* 2>/dev/null || echo "aucun core"
+          if ls /tmp/core.* >/dev/null 2>&1; then
+            core="$(ls -t /tmp/core.* | head -1)"
+            gdb -batch \
+              -ex 'set pagination off' \
+              -ex 'thread apply all bt' \
+              build/linux/volum-vst3-probe "$core" 2>&1 | tail -120
+            echo "=== modules ==="
+            gdb -batch -ex 'info sharedlibrary' build/linux/volum-vst3-probe "$core" 2>&1 | grep -i volum
+          fi
           [ "$code" -eq 0 ] || exit "$code"
         shell: bash
