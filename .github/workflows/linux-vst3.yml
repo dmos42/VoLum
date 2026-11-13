@@ -353,3 +353,64 @@ jobs:
           path: build/linux/VoLum.vst3
           if-no-files-found: error
           retention-days: 14
+
+  linux_vst3_sanitizers:
+    name: Linux VST3 (ASan + UBSan)
+    # Issue #6: the editor probe proves the plug-in loads and sounds, but a memory
+    # error can hide inside either side of the dlopen() boundary for a long time -
+    # glibc only notices the gross ones, as "corrupted size vs. prev_size" with no
+    # stack. This job builds the whole thing under AddressSanitizer and Undefined-
+    # BehaviorSanitizer and runs the same headless checks, so an overrun names its
+    # line the moment it happens. Runs on the same pushes; a red here is a real bug
+    # in our code, never in the system libraries (those stay uninstrumented).
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Check out submodules
+        run: bash NeuralAmpModeler/scripts/checkout-submodules.sh
+        shell: bash
+
+      - name: Download the VST3 SDK
+        working-directory: iPlug2/Dependencies/IPlug
+        run: bash download-vst3-sdk.sh
+        shell: bash
+
+      - name: Install X11 and OpenGL development files
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build xvfb libx11-dev libgl1-mesa-dev libglu1-mesa-dev libatomic1 libasound2-dev \
+            libglib2.0-dev dbus dbus-daemon dbus-bin python3-gi gir1.2-glib-2.0
+        shell: bash
+
+      - name: Configure and build under the sanitizers
+        run: |
+          cmake -S NeuralAmpModeler/linux -B build/linux-asan -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo -DVOLUM_COPY_RIGS=OFF \
+            -DVOLUM_SANITIZE=address,undefined
+          cmake --build build/linux-asan
+        shell: bash
+
+      - name: Ask a scripted desktop for its dialogs
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+        run: |
+          code=0
+          out="$(NeuralAmpModeler/linux/test/portal-test.bash build/linux-asan 2>&1)" || code=$?
+          printf '%s\n' "$out"
+          [ "$code" -eq 0 ] || exit "$code"
+        shell: bash
+
+      - name: Import a rig through the sidebar, under the sanitizers
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+        run: |
+          code=0
+          out="$(NeuralAmpModeler/linux/test/rig-import-test.bash build/linux-asan 2>&1)" || code=$?
+          printf '%s\n' "$out"
+          [ "$code" -eq 0 ] || exit "$code"
+        shell: bash

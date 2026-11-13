@@ -104,9 +104,12 @@ run_probe()
   rm -f "$dump"
   mkdir -p "$conf"
   # shellcheck disable=SC2086
+  # stdbuf keeps the probe's stdout alive through an abort: a probe that dies on a
+  # bad free takes its buffered output with it, and the lines before the crash are
+  # the ones that say which click it died on.
   out="$(xvfb-run -a -s "-screen 0 1440x900x24" \
     env XDG_CONFIG_HOME="$conf" VOLUM_TEST_DUMP="$dump" VOLUM_TEST_BUILDER_NAME="Test Bench" \
-    timeout 120 "$probe" "$module" --ui-only --uiseconds "$uis" --resize 0.5:900x860 $clicks 2>&1)"
+    timeout 120 stdbuf -o0 -e0 "$probe" "$module" --ui-only --uiseconds "$uis" --resize 0.5:900x860 $clicks 2>&1)"
   local code=$?
   if [ $code -ne 0 ]; then
     echo "ECHEC : le probe est sorti avec le code $code"

@@ -30,6 +30,17 @@ if(VOLUM_FORTIFY)
   add_compile_options(-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3)
 endif()
 
+# Build everything in this file under the named sanitizers, e.g.
+# -DVOLUM_SANITIZE=address,undefined (issue #6). The probe and the module get the
+# same runtime, so the module the probe dlopen()s is checked too; the system
+# libraries (GLib, X11, ALSA) stay uninstrumented, which is the point - what this
+# watches is our code. Frame pointers stay on so a report names a function.
+set(VOLUM_SANITIZE "" CACHE STRING "Sanitizers to build with, e.g. address,undefined")
+if(VOLUM_SANITIZE)
+  add_compile_options(-fsanitize=${VOLUM_SANITIZE} -fno-omit-frame-pointer)
+  add_link_options(-fsanitize=${VOLUM_SANITIZE})
+endif()
+
 # gcc 11 and 12 reject the member alias that renames the LanczosResampler template
 # (AudioDSPTools' ResamplingContainer.h: "declaration changes meaning"), which newer
 # gcc accepts; the AppImage job builds with gcc 12, so let it through there.
