@@ -41,7 +41,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             ninja-build xvfb libx11-dev libgl1-mesa-dev libglu1-mesa-dev libatomic1 libasound2-dev \
-            libglib2.0-dev dbus dbus-daemon dbus-bin python3-gi gir1.2-glib-2.0
+            libglib2.0-dev dbus dbus-daemon dbus-bin python3-gi gir1.2-glib-2.0 gdb
         shell: bash
 
       - name: Build
@@ -81,8 +81,18 @@ jobs:
             exit 0
           fi
           echo "=== reprise sous gdb ==="
-          code=0
-          out="$(VOLUM_PROBE_WRAP=/tmp/gdbwrap NeuralAmpModeler/linux/test/rig-import-test.bash build/linux 2>&1)" || code=$?
-          printf '%s\n' "$out" | tail -160
+          caught=0
+          for r in 1 2 3 4 5 6; do
+            echo "--- essai gdb $r ---"
+            code=0
+            out="$(VOLUM_PROBE_WRAP=/tmp/gdbwrap NeuralAmpModeler/linux/test/rig-import-test.bash build/linux 2>&1)" || code=$?
+            printf '%s\n' "$out" | tail -160
+            if printf '%s\n' "$out" | grep -q '=== STACKS ==='; then
+              caught=1
+              break
+            fi
+            [ "$code" -eq 0 ] || break
+          done
+          [ "$caught" -eq 1 ] || echo "pas de pile sous gdb"
           exit "$code"
         shell: bash
