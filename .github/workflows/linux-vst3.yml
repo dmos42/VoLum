@@ -144,8 +144,8 @@ jobs:
         # block. Exit code 3 means the runner has no seq driver - a machine
         # without MIDI, not a broken port - so it is a warning, not a failure.
         run: |
-          out="$(build/linux/volum-midi-check 2>&1)"
-          code=$?
+          code=0
+          out="$(build/linux/volum-midi-check 2>&1)" || code=$?
           printf '%s\n' "$out"
           if [ "$code" -eq 3 ]; then
             echo "pas de pilote seq sur le runner : check ignore"
