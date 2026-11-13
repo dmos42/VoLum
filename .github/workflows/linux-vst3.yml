@@ -464,7 +464,9 @@ jobs:
           set(CMAKE_FIND_ROOT_PATH /usr/aarch64-linux-gnu)
           set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
           set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
-          set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+          # GL and friends ship arch-independent headers as Multi-Arch: same, so
+          # dpkg installs them once, in /usr/include - outside the arm64 root.
+          set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE BOTH)
           set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
           TC
           export PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig

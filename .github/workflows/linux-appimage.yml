@@ -302,8 +302,8 @@ jobs:
             && zip -qr "../linux-appimage/VoLum-linux-x86_64-$version.lv2.zip" VoLum.lv2 )
           ( cd build/linux && rm -f "../linux-appimage/VoLum-linux-x86_64-$version.clap.zip" \
             && zip -q "../linux-appimage/VoLum-linux-x86_64-$version.clap.zip" VoLum.clap )
-          dist="$(ls ../linux-dist/VoLum-linux-x86_64-"$version".tar.gz ../linux-dist/VoLum-rigs-"$version".tar.gz \
-            ../linux-dist/volum-"$version"-1.*.rpm ../linux-dist/volum-rigs-"$version"-1.*.rpm 2>/dev/null)"
+          dist="$(ls build/linux-dist/VoLum-linux-x86_64-"$version".tar.gz build/linux-dist/VoLum-rigs-"$version".tar.gz \
+            build/linux-dist/volum-"$version"-1.*.rpm build/linux-dist/volum-rigs-"$version"-1.*.rpm 2>/dev/null)"
           [ -n "$dist" ] || { echo "les paquets de distribution sont absents : l'etape dist a-t-elle tourne ?"; exit 1; }
           cd build/linux-appimage
           rm -f SHA256SUMS.txt
