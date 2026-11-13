@@ -52,6 +52,12 @@ jobs:
         run: bash download-vst3-sdk.sh
         shell: bash
 
+      - name: Download the CLAP headers
+        # Headers only (issue #9): the CLAP wrapper speaks the format's C API and
+        # drives the VST3 module, so nothing else from the SDK is needed.
+        run: bash NeuralAmpModeler/linux/download-clap.sh
+        shell: bash
+
       - name: Install X11 and OpenGL development files
         # glib2 is what the plug-in uses to ask the desktop for its dialogs; dbus and
         # python3-gi are what let the scripted portal answer instead of a person.
@@ -60,7 +66,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             ninja-build xvfb libx11-dev libgl1-mesa-dev libglu1-mesa-dev libatomic1 libasound2-dev \
             libglib2.0-dev dbus dbus-daemon dbus-bin python3-gi gir1.2-glib-2.0 desktop-file-utils \
-            appstream fonts-dejavu-core
+            appstream fonts-dejavu-core lv2-dev
         shell: bash
 
       - name: Configure
@@ -187,6 +193,17 @@ jobs:
         run: |
           ./build/linux/volum-vst3-probe \
             build/linux/VoLum.vst3/Contents/x86_64-linux/VoLum.vst3.so --seconds 2
+        shell: bash
+
+      - name: Check the LV2 and CLAP wrappers render the VST3's audio
+        # Issue #9 end to end: one tone through the direct engine, the LV2 module
+        # and the CLAP module, and the same bytes out of all three, defaults and
+        # with a parameter moved. Without the rigs the plug-in's fallback is
+        # silence, so the run also proves the surfaces agree while mute - the
+        # check says so instead of failing on a parameter it cannot hear.
+        run: |
+          ./build/linux/volum-wrapper-check \
+            build/linux/VoLum.lv2/volum-lv2.so build/linux/VoLum.clap
         shell: bash
 
       - name: Probe the editor window on Xvfb

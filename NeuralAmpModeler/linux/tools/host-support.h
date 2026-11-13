@@ -423,6 +423,9 @@ struct LoadOptions
 {
   bool listClasses = true; // print every exported class
   int listParams = 0; // how many parameter lines to print (0: none)
+  // A wrapper living inside a host process (LV2, CLAP) says nothing on stdout: the
+  // host owns the terminal, and its own log is where a user looks.
+  bool quiet = false;
 };
 
 /** Everything a host has to keep alive while it uses the plug-in. */
@@ -473,9 +476,11 @@ inline int loadPlugin(const std::string& path, Loaded& L, const LoadOptions& opt
   }
 
   if (initModule)
-    printf("InitModule() -> %d\n", int(initModule()));
+    if (!opt.quiet)
+      printf("InitModule() -> %d\n", int(initModule()));
   else
-    printf("InitModule() absent (le module n'en a peut-etre pas besoin)\n");
+    if (!opt.quiet)
+      printf("InitModule() absent (le module n'en a peut-etre pas besoin)\n");
 
   L.factory = getFactory();
 
@@ -488,10 +493,12 @@ inline int loadPlugin(const std::string& path, Loaded& L, const LoadOptions& opt
   sdk::PFactoryInfo factoryInfo;
 
   if (L.factory->getFactoryInfo(&factoryInfo) == sdk::kResultOk)
-    printf("fabrique : vendor=%s url=%s\n", factoryInfo.vendor, factoryInfo.url);
+    if (!opt.quiet)
+      printf("fabrique : vendor=%s url=%s\n", factoryInfo.vendor, factoryInfo.url);
 
   const sdk::int32 count = L.factory->countClasses();
-  printf("classes exportees : %d\n", int(count));
+  if (!opt.quiet)
+    printf("classes exportees : %d\n", int(count));
 
   for (sdk::int32 i = 0; i < count; ++i)
   {
@@ -500,7 +507,7 @@ inline int loadPlugin(const std::string& path, Loaded& L, const LoadOptions& opt
     if (L.factory->getClassInfo(i, &classInfo) != sdk::kResultOk)
       continue;
 
-    if (opt.listClasses)
+    if (opt.listClasses && !opt.quiet)
       printf("  [%d] categorie=%s nom=%s cid=%s\n", int(i), classInfo.category, classInfo.name,
              cidToString(classInfo.cid).c_str());
 
@@ -517,7 +524,8 @@ inline int loadPlugin(const std::string& path, Loaded& L, const LoadOptions& opt
     // This SDK revision passes the context (the instance itself) to initialize().
     if (candidate->initialize(candidate) != sdk::kResultOk)
     {
-      printf("  initialize() a echoue pour cette classe\n");
+      if (!opt.quiet)
+        printf("  initialize() a echoue pour cette classe\n");
       candidate->release();
       continue;
     }
@@ -550,13 +558,15 @@ inline int loadPlugin(const std::string& path, Loaded& L, const LoadOptions& opt
     return kLoadNoInstance;
   }
 
-  printf("instance : %s | processor=%s controller=%s\n", L.className.c_str(), L.processor ? "oui" : "non",
+  if (!opt.quiet)
+    printf("instance : %s | processor=%s controller=%s\n", L.className.c_str(), L.processor ? "oui" : "non",
          L.controller ? "oui" : "non");
 
   if (L.controller)
     L.controller->setComponentHandler(static_cast<vst::IComponentHandler*>(&L.handler));
   else
-    printf("  pas de controller : pas de poignee d'evenements possible\n");
+    if (!opt.quiet)
+      printf("  pas de controller : pas de poignee d'evenements possible\n");
 
   // Buses, so we know what to feed the plug-in.
   for (int dir = 0; dir < 2; ++dir)
@@ -570,7 +580,8 @@ inline int loadPlugin(const std::string& path, Loaded& L, const LoadOptions& opt
 
       if (L.component->getBusInfo(vst::MediaTypes::kAudio, direction, b, busInfo) == sdk::kResultOk)
       {
-        printf("  bus %s %d : \"%s\", %d canaux\n", dir == 0 ? "entree" : "sortie", b, toAscii(busInfo.name).c_str(),
+        if (!opt.quiet)
+          printf("  bus %s %d : \"%s\", %d canaux\n", dir == 0 ? "entree" : "sortie", b, toAscii(busInfo.name).c_str(),
                busInfo.channelCount);
 
         if (b == 0)
@@ -584,14 +595,16 @@ inline int loadPlugin(const std::string& path, Loaded& L, const LoadOptions& opt
   if (L.controller && opt.listParams > 0)
   {
     const sdk::int32 paramCount = L.controller->getParameterCount();
-    printf("parametres : %d\n", int(paramCount));
+    if (!opt.quiet)
+      printf("parametres : %d\n", int(paramCount));
 
     for (sdk::int32 p = 0; p < paramCount && p < opt.listParams; ++p)
     {
       vst::ParameterInfo info;
 
       if (L.controller->getParameterInfo(p, info) == sdk::kResultOk)
-        printf("  [%2d] id=%u \"%s\" defaut=%.3f pas=%d\n", int(p), info.id, toAscii(info.title).c_str(),
+        if (!opt.quiet)
+          printf("  [%2d] id=%u \"%s\" defaut=%.3f pas=%d\n", int(p), info.id, toAscii(info.title).c_str(),
                info.defaultNormalizedValue, info.stepCount);
     }
   }
@@ -628,7 +641,7 @@ inline void applyParams(Loaded& L, const std::vector<std::pair<int, double>>& se
 
 /** Bring the plug-in up at a given rate and block size. Returns false when the plug-in
  * refused the setup (a model that needs another rate would show up here). */
-inline bool startProcessing(Loaded& L, double rate, int blockLength)
+inline bool startProcessing(Loaded& L, double rate, int blockLength, bool quiet = false)
 {
   vst::ProcessSetup setup;
   setup.processMode = vst::kRealtime;
@@ -637,7 +650,9 @@ inline bool startProcessing(Loaded& L, double rate, int blockLength)
   setup.sampleRate = rate;
 
   const sdk::tresult setupResult = L.processor->setupProcessing(setup);
-  printf("setupProcessing -> %d (%d Hz, %d echantillons par bloc)\n", int(setupResult), int(rate), blockLength);
+
+  if (!quiet)
+    printf("setupProcessing -> %d (%d Hz, %d echantillons par bloc)\n", int(setupResult), int(rate), blockLength);
 
   if (setupResult != sdk::kResultOk)
     return false;
@@ -723,17 +738,32 @@ private:
   HostWindow mWindow;
 };
 
-/** Tear everything down in the order the SDK wants. */
+/** Tear everything down in the order the SDK wants. The processor and the
+ *  controller are queryInterface references on the same object as the component:
+ *  they must be released too, or the object survives the unload - and with it
+ *  the idle-timer thread, which then runs into a module the dlclose unmaps.
+ *  The hosts that exit right after never saw it; a process that loads the
+ *  module a second time (the wrapper check, a host reloading) does. */
 inline void unloadPlugin(Loaded& L)
 {
   if (L.controller)
     L.controller->setComponentHandler(nullptr);
 
   if (L.component)
-  {
     L.component->terminate();
+
+  if (L.processor)
+    L.processor->release();
+
+  if (L.controller)
+    L.controller->release();
+
+  if (L.component)
     L.component->release();
-  }
+
+  L.processor = nullptr;
+  L.controller = nullptr;
+  L.component = nullptr;
 
   if (L.lib)
   {

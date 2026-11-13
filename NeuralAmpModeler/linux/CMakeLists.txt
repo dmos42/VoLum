@@ -371,6 +371,10 @@ set(VOLUM_HOST_SDK_SOURCES
   "${VST3_SDK}/pluginterfaces/base/ustring.cpp"
   "${VST3_SDK}/public.sdk/source/common/commoniids.cpp"
   "${VST3_SDK}/public.sdk/source/vst/hosting/eventlist.cpp"
+  # The hosting class the wrappers queue parameter changes through (issue #9):
+  # a host's automation reaches the audio path only through the block's
+  # inputParameterChanges, and this is the queue a DAW builds it with.
+  "${VST3_SDK}/public.sdk/source/vst/hosting/parameterchanges.cpp"
   "${VST3_SDK}/public.sdk/source/vst/vstinitiids.cpp"
 )
 
@@ -607,6 +611,109 @@ if(VOLUM_BUILD_MIDI_CHECK AND ALSA_FOUND)
 endif()
 
 # ---------------------------------------------------------------------------
+# The host formats beyond VST3 (issue #9): an LV2 module and a CLAP module,
+# both a format surface over the same engine (tools/wrapper-support.h), plus
+# the two tools that keep them honest - the TTL generator, which writes the
+# .lv2 bundle's data files from the module's own parameter list, and the check
+# that runs one tone through the direct engine, the LV2 module and the CLAP
+# module and requires the same bytes out of all three.
+#
+# The wrappers find the VST3 module themselves (VOLUM_VST3_MODULE, then the
+# standard folders, then beside the wrapper), so a bundle moves as a pair.
+# ---------------------------------------------------------------------------
+
+option(VOLUM_BUILD_LV2 "Build the LV2 wrapper, its TTL generator and the VoLum.lv2 bundle" ON)
+option(VOLUM_BUILD_CLAP "Build the CLAP wrapper" ON)
+option(VOLUM_BUILD_WRAPPER_CHECK "Build volum-wrapper-check, the LV2/CLAP/VST3 audio-equality check" ON)
+
+find_path(VOLUM_LV2_INCLUDE_DIR lv2/core/lv2.h)
+find_path(VOLUM_CLAP_INCLUDE_DIR clap/clap.h
+  PATHS "${DEPS_PATH}/IPlug/clap/include")
+
+if(VOLUM_BUILD_LV2 AND NOT VOLUM_LV2_INCLUDE_DIR)
+  message(WARNING
+    "lv2 introuvable : le paquet LV2 ne sera pas construit. Installe lv2-dev "
+    "(Ubuntu/Debian) ou lv2-devel (Fedora), ou passe -DVOLUM_LV2_INCLUDE_DIR=... .")
+endif()
+
+if(VOLUM_BUILD_CLAP AND NOT VOLUM_CLAP_INCLUDE_DIR)
+  message(WARNING
+    "clap introuvable : le paquet CLAP ne sera pas construit. Lance "
+    "NeuralAmpModeler/linux/download-clap.sh, ou passe -DVOLUM_CLAP_INCLUDE_DIR=... .")
+endif()
+
+macro(volum_configure_wrapper target source)
+  # The SDK sources the wrapper's own hosting code needs: the iids it queries
+  # the module with, and the EventList / ParameterChanges the engine fills. A
+  # copy of its own, because the module it dlopen()s keeps its own.
+  add_library(${target} MODULE
+    "${CMAKE_CURRENT_LIST_DIR}/tools/${source}"
+    ${VOLUM_HOST_SDK_SOURCES}
+  )
+
+  target_compile_definitions(${target} PRIVATE RELEASE $<$<NOT:$<CONFIG:Debug>>:NDEBUG>)
+  target_include_directories(${target} PRIVATE "${VST3_SDK}" "${CMAKE_CURRENT_LIST_DIR}/tools" ${ARGN})
+  # X11::X11 is here for the headers host-support.h pulls in, not for a window:
+  # a wrapper never opens one.
+  target_link_libraries(${target} PRIVATE X11::X11 ${CMAKE_DL_LIBS} ${VOLUM_LIBATOMIC})
+  target_compile_features(${target} PRIVATE cxx_std_17)
+
+  set_target_properties(${target} PROPERTIES
+    PREFIX ""
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+endmacro()
+
+set(VOLUM_LV2_BUNDLE_DIR "${CMAKE_BINARY_DIR}/VoLum.lv2")
+
+if(VOLUM_BUILD_LV2 AND VOLUM_LV2_INCLUDE_DIR)
+  volum_configure_wrapper(volum-lv2 volum-lv2.cpp "${VOLUM_LV2_INCLUDE_DIR}")
+
+  add_custom_command(TARGET volum-lv2 POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${VOLUM_LV2_BUNDLE_DIR}"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:volum-lv2>" "${VOLUM_LV2_BUNDLE_DIR}/volum-lv2.so"
+    COMMENT "Assembling ${VOLUM_LV2_BUNDLE_DIR}")
+
+  # The TTL generator is a host tool: it opens the module the way the wrappers
+  # do, and writes the two data files the bundle needs. The wrapper depends on
+  # it, so the TTLs are in place before the module lands in the bundle.
+  volum_configure_host(volum-lv2-ttl volum-lv2-ttl.cpp)
+  add_dependencies(volum-lv2-ttl volum-vst3)
+
+  add_custom_command(TARGET volum-lv2-ttl POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E env "VOLUM_VST3_MODULE=${VOLUM_MODULE_DIR}/VoLum.vst3.so" "$<TARGET_FILE:volum-lv2-ttl>" "${VOLUM_LV2_BUNDLE_DIR}"
+    COMMENT "Generating the VoLum.lv2 TTLs from the module's own parameter list")
+
+  add_dependencies(volum-lv2 volum-lv2-ttl)
+endif()
+
+if(VOLUM_BUILD_CLAP AND VOLUM_CLAP_INCLUDE_DIR)
+  # A CLAP on Linux is a bare file named <name>.clap, where a host dlsym()s
+  # clap_entry - no bundle folder, unlike the VST3 and the LV2.
+  volum_configure_wrapper(volum-clap volum-clap.cpp "${VOLUM_CLAP_INCLUDE_DIR}")
+
+  set_target_properties(volum-clap PROPERTIES
+    OUTPUT_NAME "VoLum"
+    SUFFIX ".clap")
+endif()
+
+if(VOLUM_BUILD_WRAPPER_CHECK AND VOLUM_LV2_INCLUDE_DIR AND VOLUM_CLAP_INCLUDE_DIR)
+  volum_configure_host(volum-wrapper-check volum-wrapper-check.cpp)
+  target_include_directories(volum-wrapper-check PRIVATE
+    "${VOLUM_LV2_INCLUDE_DIR}"
+    "${VOLUM_CLAP_INCLUDE_DIR}"
+    "${PROJECT_DIR}/tests")
+  add_dependencies(volum-wrapper-check volum-vst3)
+
+  if(TARGET volum-lv2)
+    add_dependencies(volum-wrapper-check volum-lv2)
+  endif()
+
+  if(TARGET volum-clap)
+    add_dependencies(volum-wrapper-check volum-clap)
+  endif()
+endif()
+
+# ---------------------------------------------------------------------------
 # What a user gets from `cmake --install build/linux`: the VST3 bundle where the
 # hosts look (VOLUM_INSTALL_DIR, ~/.vst3 by default), and the standalone where a
 # desktop looks - bin/, share/applications/, share/icons/hicolor/. These rules sit
@@ -631,4 +738,20 @@ if(TARGET volum-app)
   # Ou ca atterrit, parce que deux endroits differents sont touches selon l'option, et
   # qu'un PATH oublie est la premiere cause d'une entree de menu qui ne lance rien.
   install(CODE "message(\"VoLum : paquet VST3 dans ${VOLUM_INSTALL_DIR} ; programme dans ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_BINDIR} ; entree de menu dans ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_DATADIR}/applications\")")
+endif()
+
+# The LV2 bundle and the CLAP module, where the formats' own search paths look:
+# ~/.lv2 and ~/.clap, same per-user story as VOLUM_INSTALL_DIR. A packager
+# passes -DVOLUM_LV2_INSTALL_DIR=/usr/lib/lv2 -DVOLUM_CLAP_INSTALL_DIR=/usr/lib/clap.
+if(TARGET volum-lv2)
+  set(VOLUM_LV2_INSTALL_DIR "$ENV{HOME}/.lv2" CACHE PATH "Folder the VoLum.lv2 bundle is installed into")
+  install(DIRECTORY "${VOLUM_LV2_BUNDLE_DIR}"
+    DESTINATION "${VOLUM_LV2_INSTALL_DIR}"
+    USE_SOURCE_PERMISSIONS)
+endif()
+
+if(TARGET volum-clap)
+  set(VOLUM_CLAP_INSTALL_DIR "$ENV{HOME}/.clap" CACHE PATH "Folder the VoLum.clap module is installed into")
+  install(FILES "$<TARGET_FILE:volum-clap>"
+    DESTINATION "${VOLUM_CLAP_INSTALL_DIR}")
 endif()
