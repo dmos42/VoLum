@@ -736,14 +736,10 @@ public:
   {
     if (mView)
     {
-      fprintf(stderr, "[teardown] removed...\n");
       mView->removed();
-      fprintf(stderr, "[teardown] fenetre hote...\n");
       mWindow.close();
-      fprintf(stderr, "[teardown] release de la vue...\n");
       mView->release();
       mView = nullptr;
-      fprintf(stderr, "[teardown] editeur ferme\n");
     }
   }
 
@@ -764,28 +760,16 @@ inline void unloadPlugin(Loaded& L)
     L.controller->setComponentHandler(nullptr);
 
   if (L.component)
-  {
-    fprintf(stderr, "[teardown] terminate...\n");
     L.component->terminate();
-  }
 
   if (L.processor)
-  {
-    fprintf(stderr, "[teardown] release processeur...\n");
     L.processor->release();
-  }
 
   if (L.controller)
-  {
-    fprintf(stderr, "[teardown] release controleur...\n");
     L.controller->release();
-  }
 
   if (L.component)
-  {
-    fprintf(stderr, "[teardown] release composant...\n");
     L.component->release();
-  }
 
   L.processor = nullptr;
   L.controller = nullptr;
@@ -794,12 +778,8 @@ inline void unloadPlugin(Loaded& L)
   if (L.lib)
   {
     if (auto deinit = reinterpret_cast<void (*)()>(dlsym(L.lib, "_Z12DeinitModulev")))
-    {
-      fprintf(stderr, "[teardown] DeinitModule...\n");
       deinit();
-    }
 
-    fprintf(stderr, "[teardown] dlclose...\n");
     dlclose(L.lib);
     L.lib = nullptr;
   }
