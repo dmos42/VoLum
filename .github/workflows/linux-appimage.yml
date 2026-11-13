@@ -261,6 +261,8 @@ jobs:
           tar -C /tmp/tarroot -xzf "$dist"/VoLum-linux-x86_64-*.tar.gz
           test -x /tmp/tarroot/usr/bin/volum-app
           test -d /tmp/tarroot/usr/lib/vst3/VoLum.vst3/Contents/x86_64-linux
+          test -d /tmp/tarroot/usr/lib/lv2/VoLum.lv2
+          test -f /tmp/tarroot/usr/lib/clap/VoLum.clap
           desktop-file-validate /tmp/tarroot/usr/share/applications/com.github.guitarlum.VoLum.desktop
           if find /tmp/tarroot -name '*.nam' | grep -q .; then
             echo "le tarball principal embarque les captures : elles ont leur propre paquet"
@@ -276,6 +278,8 @@ jobs:
           rpm2cpio "$dist"/volum-*.x86_64.rpm | (cd /tmp/rpmroot && cpio -idmu --quiet)
           test -x /tmp/rpmroot/usr/bin/volum-app
           test -d /tmp/rpmroot/usr/lib/vst3/VoLum.vst3/Contents/x86_64-linux
+          test -d /tmp/rpmroot/usr/lib/lv2/VoLum.lv2
+          test -f /tmp/rpmroot/usr/lib/clap/VoLum.clap
           desktop-file-validate /tmp/rpmroot/usr/share/applications/com.github.guitarlum.VoLum.desktop
           rm -rf /tmp/rpmrigs && mkdir -p /tmp/rpmrigs
           rpm2cpio "$dist"/volum-rigs-*.noarch.rpm | (cd /tmp/rpmrigs && cpio -idmu --quiet)
