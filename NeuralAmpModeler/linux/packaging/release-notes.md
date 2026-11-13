@@ -1,49 +1,100 @@
-<!-- Le texte de cette page (https://github.com/dmos42/VoLum/releases/tag/v1.3.1-linux.4) .
+<!-- Le texte de cette page (https://github.com/dmos42/VoLum/releases/tag/v1.3.1-linux.5) .
      Le job `Linux AppImage` (.github/workflows/linux-appimage.yml) cree la page a partir de
      ce fichier quand un tag `v*-linux*` n'a pas encore de release, puis y depose les fichiers
      qu'il vient de construire : pousser un tag suffit, et texte et artifacts viennent du meme
      commit. Pour corriger la page sans pousser un nouveau tag :
-       gh release edit v1.3.1-linux.4 --repo dmos42/VoLum --notes-file \
+       gh release edit v1.3.1-linux.5 --repo dmos42/VoLum --notes-file \
            NeuralAmpModeler/linux/packaging/release-notes.md
      Les nombres cites viennent de test/meter-motion-test.bash, du probe, et du job lui-meme. -->
 
-VoLum 1.3.1 for Linux, x86_64: the VST3 a DAW loads, and a stand-alone that needs no DAW.
-Same plug-in as [v1.3.1-linux.3](https://github.com/dmos42/VoLum/releases/tag/v1.3.1-linux.3)
-— same amp, same 249 bundled captures, no audio code changed since — and what differs in this
-one is who builds it and what the package tells the machine it runs on.
+VoLum 1.3.1 for Linux, x86_64: the VST3 a DAW loads, the LV2 and CLAP the other hosts load,
+and a stand-alone that needs no DAW at all.
+Same amp as [v1.3.1-linux.4](https://github.com/dmos42/VoLum/releases/tag/v1.3.1-linux.4) —
+same 249 bundled captures, no audio code changed since — and what this one adds is the
+surfaces around the amp: the two host formats Linux had left, a MIDI input and a settings
+window for the stand-alone, and a message box that answers.
 
 ## What is on this page, and who made it
 
 The `Linux AppImage` job runs the same recipe a person used to run by hand,
 `NeuralAmpModeler/linux/packaging/appimage.bash`, on a runner, with the rigs included. Its
 output *is* this release: the tag push creates the page from the file you are reading, and
-uploads the four artifacts into it.
+uploads the artifacts into it.
 
 | file | what it is |
 | --- | --- |
-| `VoLum-linux-x86_64-1.3.1.AppImage` | the stand-alone, one file: `chmod +x` and run. It carries update information and AppStream metadata inside it now |
+| `VoLum-linux-x86_64-1.3.1.AppImage` | the stand-alone, one file: `chmod +x` and run. It carries update information and AppStream metadata inside it |
 | `VoLum-linux-x86_64-1.3.1.AppImage.zsync` | what makes an update a partial download; with no such asset, the update string inside the image is decorative |
-| `VoLum-linux-x86_64-1.3.1.vst3.zip` | the plug-in for a DAW — unpack it so the folder lands at `~/.vst3/VoLum.vst3` |
-| `SHA256SUMS.txt` | made in the same job, over the two files above |
+| `VoLum-linux-x86_64-1.3.1.vst3.zip` | the plug-in for a VST3 host — unpack it so the folder lands at `~/.vst3/VoLum.vst3` |
+| `VoLum-linux-x86_64-1.3.1.lv2.zip` | the plug-in for an LV2 host — unpack it so the folder lands at `~/.lv2/VoLum.lv2` |
+| `VoLum-linux-x86_64-1.3.1.clap.zip` | the plug-in for a CLAP host — unpack it and put the `VoLum.clap` file it contains at `~/.clap/VoLum.clap` |
+| `SHA256SUMS.txt` | made in the same job, over the four files above |
 
-Numbers from the run that produced them: the image is 34 302 456 bytes, its `.zsync`
-117 487, the image holds 249 `.nam` captures, and the packaged program played a 48 kHz 220 Hz
-tone into a WAV that came out **byte for byte the same** as the same tone through the
-unpackaged build of the same commit (`15e88ca0…` both). That comparison is the one worth
-having: an AppImage does not usually fail by refusing to start, it fails by loading some other
-copy of the plug-in — and neither a size nor a hash can see that.
+Numbers from the run that produced them: the image holds 249 `.nam` captures, and the
+packaged program played a 48 kHz 220 Hz tone into a WAV that came out **byte for byte the
+same** as the same tone through the unpackaged build of the same commit. That comparison is
+the one worth having: an AppImage does not usually fail by refusing to start, it fails by
+loading some other copy of the plug-in — and neither a size nor a hash can see that.
 
-## What the package now tells your desktop
+## The plug-in in every host format a Linux DAW loads
+
+Until this release the port spoke VST3 only. An LV2 bundle and a CLAP module ship beside it
+now, and they are not re-implementations: each is a thin format surface that `dlopen()`s the
+very VST3 module the zip carries and drives it through the same block loop a host drives,
+handing automation over the way a DAW does — through the block's `inputParameterChanges`.
+One engine, three sockets. The LV2 bundle's TTL files are generated from the module's own
+parameter list at build time (233 controls), so the metadata and the binary cannot drift
+apart.
+
+What makes three sockets trustworthy is the check that keeps them honest,
+`volum-wrapper-check`: one tone through the direct engine, the LV2 module and the CLAP
+module, and **the same bytes out of all three** — at defaults, and again with a parameter
+moved. CI runs it twice, deliberately: without rigs on the plug-in job (the surfaces must
+agree even while the plug-in's fallback is silence), and with the full 249-rig set on this
+job, where the tone goes through a real amp in all three sockets. The LV2 and CLAP binaries
+sit under the same glibc 2.35 floor the rest of the release is held to.
+
+Install, per format:
+
+```bash
+unzip VoLum-linux-x86_64-1.3.1.lv2.zip -d ~/.lv2        # -> ~/.lv2/VoLum.lv2/
+unzip VoLum-linux-x86_64-1.3.1.clap.zip -d ~/.clap      # -> ~/.clap/VoLum.clap
+```
+
+Then rescan plugins in the host; Carla and Reaper list all three from the same engine.
+
+State save/restore is the wrappers' known gap for now: audio, parameters and MIDI round-trip
+and are proven equal, but a host reloading a session re-loads the default rig rather than the
+one the session saved.
+
+## The stand-alone grew its settings window and a MIDI input
+
+**The settings panel** (in-app, over the editor): rows for the output device, the input
+device and the period, choices written to `~/.config/VoLum/app.conf` atomically, and a
+device that refuses to open answered in the window with nothing written — the same
+negotiation the `app.conf` keys always drove, so what the panel writes is exactly what the
+host re-reads. CI opens the panel on Xvfb, writes through it, and feeds the result back
+through `volum-app --check`.
+
+**MIDI in** (issue #11): the stand-alone opens an ALSA sequencer port, so a keyboard or a
+sequencer can cable into it the way one cables into a DAW. Note on/off, CC, program change
+and pitch bend arrive as the exact bytes a cable would carry, stamped inside the block;
+clock and queue bytes are dropped. The recall path is the plug-in's own: CC #102 or a
+program change recalls a rig slot. CI exercises the port with a sender in the same process,
+and reports "no seq driver" rather than failing on a runner that has no MIDI.
+
+**The message box answers** (issue #2): `ShowMessageBox` used to return without showing
+anything on Linux. The box the platform draws itself now opens as its own editor window,
+refuses a press off the buttons, and answers through the completion handler — checked
+headless on Xvfb.
+
+## What the package tells your desktop
 
 **AppStream metadata.** The component id is `com.github.guitarlum.VoLum`, and it is the stem
 of three file names AppStream requires to agree: the `.desktop` menu entry, the icon its
 `Icon=` line resolves to, and `usr/share/metainfo/com.github.guitarlum.VoLum.metainfo.xml`.
-The metainfo carries name, summary, description, categories, keywords, the project license,
-the developer, a screenshot and one `<release>` entry. `desktop-file-validate` and
-`appstreamcli validate-tree` run in CI against a staged `/usr` root and against the extracted
-image: a package that installs an entry whose icon is filed under another name installs
-happily and shows a generic picture forever, so here that is a build failure rather than a
-screenshot nobody takes.
+`desktop-file-validate` and `appstreamcli validate-tree` run in CI against a staged `/usr`
+root and against the extracted image.
 
 The id follows the upstream project (`guitarlum/VoLum`) so that a Linux build accepted
 upstream later keeps the same identity in people's software centres; this fork is only the one
@@ -77,6 +128,12 @@ install:
 objdump -T VoLum.vst3/Contents/x86_64-linux/VoLum.vst3.so | grep -o 'GLIBC_2\.[0-9]*' | sort -Vu | tail -1
 ```
 
+The job reads that floor off every binary that ships — the VST3, the LV2, the CLAP, the
+stand-alone and its hosts — and fails the build if any symbol from a newer one creeps back
+in. That is the fix for the Flatpak that answered only `No plugins found`
+([#7](https://github.com/dmos42/VoLum/issues/7)): a module stamped `GLIBC_2.43` by the
+machine that built it loads nowhere but on that machine.
+
 ## If the sound comes out in pieces
 
 It is the buffer, not the cable and not the model. Through a sound server the number that
@@ -101,7 +158,7 @@ less buffer than its own quantum. Rechecked on the packaged AppImage here: 1876 
 10 seconds, no processing error, no underrun.
 
 On a machine that still crackles, without rebuilding anything — the AppImage reads this file
-like every other host:
+like every other host, and the settings panel writes it for you:
 
 ```bash
 echo 'period=512' >> ~/.config/VoLum/app.conf
@@ -141,6 +198,9 @@ installed stand-alone needs that refresh too.
 
 - The VST3 loads, enumerates and processes: 2 in / 2 out, MIDI in, 233 parameters; a 440 Hz
   test tone in comes out at crest −17.0 dBFS, RMS −27.8 dBFS.
+- **The three host formats render the same bytes.** `volum-wrapper-check`, with rigs in this
+  job and without rigs in the plug-in job: direct engine = LV2 = CLAP, at defaults and with a
+  parameter moved, exit 0 both times.
 - It loads and sounds in a real sequencer: Carla 2.5.10 lists it and runs it.
 - The window draws and answers mouse, keyboard, menus, text entry and clipboard — the X11/GLX
   graphics backend for iPlug 2 that this port had to write, ~1600 lines where upstream left 11
@@ -151,7 +211,9 @@ installed stand-alone needs that refresh too.
   file open, file save, colour), so no toolkit is dragged into the DAW's process. Exercised by
   a scripted client: 13 checks, nobody clicking.
 - The stand-alone runs end to end with the window open: five minutes of full duplex through
-  PipeWire, 45 970 blocks, no processing error and two underruns.
+  PipeWire, 45 970 blocks, no processing error and two underruns. Its settings panel writes a
+  conf the host re-reads unchanged, and its MIDI port carries note, CC, program change and
+  pitch bend bytes stamped inside the block.
 - **The package and the build make the same sound.** The `Linux AppImage` job runs the image
   with `--appimage-extract-and-run` over a tone and compares its WAV with the unpackaged host's
   byte for byte; and before that comparison means anything, the same image opens its window
@@ -176,27 +238,21 @@ installed stand-alone needs that refresh too.
 
 Each of these is an issue on this repository, and nothing above claims them:
 
-- LV2 and CLAP wrappers — VST3 is the only host format on Linux. (AU is Apple-only, so there
-  is nothing to port there; the older bullet read "AU, LV2 and CLAP" because that is what
-  upstream's format list looks like from Linux.) [#9](https://github.com/dmos42/VoLum/issues/9)
-- The stand-alone has no settings window: device, period and gain are `app.conf` keys, and the
-  guitar has to be a line in. [#10](https://github.com/dmos42/VoLum/issues/10) It has no MIDI
-  source either, which a DAW supplies for free. [#11](https://github.com/dmos42/VoLum/issues/11)
 - Native Wayland: the editor is X11, and runs through XWayland on a Wayland desktop.
   [#12](https://github.com/dmos42/VoLum/issues/12)
 - Nothing is signed. The AppStream half of that older bullet is done above; whether to sign at
   all, with what key and where that key lives, is the owner's call.
   [#14](https://github.com/dmos42/VoLum/issues/14) Until then the sums file on this page is the
   check, and the job that made the files made it.
-- The C library floor is still whatever the build machine has; moving it into CI changed the
-  number rather than solving it, and lowering it deliberately — an older container — is
-  [#7](https://github.com/dmos42/VoLum/issues/7).
+- The wrappers do not save and restore state yet: a session reload re-loads the default rig.
+  Audio, parameters and MIDI are proven equal; the state round-trip is the next wrapper work.
 
 ## Fingerprints
 
 ```bash
-sha256sum -c SHA256SUMS.txt     # the asset on this page, produced by the job that produced the files
+sha256sum -c SHA256SUMS.txt     # the assets on this page, produced by the job that produced the files
 ```
 
-`SHA256SUMS.txt` covers the AppImage and the zip. It stopped being a transcription of a laptop
-in this release, which is the only reason a fingerprint is worth printing.
+`SHA256SUMS.txt` covers the AppImage and the three plug-in packages. It stopped being a
+transcription of a laptop two releases ago, which is the only reason a fingerprint is worth
+printing.

@@ -81,6 +81,14 @@ jobs:
         run: bash download-vst3-sdk.sh
         shell: bash
 
+      - name: Download the CLAP headers
+        # Headers only (issue #9): the CLAP wrapper speaks the format's C API and
+        # drives the VST3 module, so nothing else from the SDK is needed. Same step
+        # the plug-in job runs; without it the LV2/CLAP targets are silently skipped
+        # and the release would ship two formats fewer than the notes promise.
+        run: bash NeuralAmpModeler/linux/download-clap.sh
+        shell: bash
+
       - name: Install what packaging needs
         # squashfs-tools builds the image; zsync is what makes the .zsync file, without which
         # appimagetool embeds the update string and quietly produces nothing beside it - the
@@ -98,7 +106,7 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
             build-essential cmake pkg-config ninja-build gcc-12 g++-12 xvfb libx11-dev libgl1-mesa-dev libglu1-mesa-dev libatomic1 libasound2-dev \
-            libglib2.0-dev squashfs-tools zsync appstream desktop-file-utils zip binutils curl gnupg file
+            libglib2.0-dev lv2-dev squashfs-tools zsync appstream desktop-file-utils zip binutils curl gnupg file
           mkdir -p -m 755 /etc/apt/keyrings
           curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
             -o /etc/apt/keyrings/githubcli-archive-keyring.gpg
@@ -125,6 +133,8 @@ jobs:
           set -o pipefail
           for binary in \
             build/linux/VoLum.vst3/Contents/x86_64-linux/VoLum.vst3.so \
+            build/linux/VoLum.lv2/volum-lv2.so \
+            build/linux/VoLum.clap \
             build/linux/volum-app \
             build/linux/volum-live \
             build/linux/volum-vst3-probe \
@@ -138,6 +148,16 @@ jobs:
             [ "$(printf 'GLIBCXX_3.4.30\n%s\n' "$cxxfloor" | sort -Vu | tail -1)" = "GLIBCXX_3.4.30" ] \
               || { echo "$binary exige $cxxfloor, plus récent que le GLIBCXX 3.4.30 du conteneur"; exit 1; }
           done
+        shell: bash
+
+      - name: Check the LV2 and CLAP wrappers render the VST3's audio
+        # Issue #9, at full fidelity: this build has the rigs, so the tone goes
+        # through a real amp in all three surfaces and the bytes must still agree.
+        # The plug-in job runs the same check without rigs; between them the check
+        # is proven both mute and loaded.
+        run: |
+          ./build/linux/volum-wrapper-check \
+            build/linux/VoLum.lv2/volum-lv2.so build/linux/VoLum.clap
         shell: bash
 
       - name: Package with the recipe
@@ -229,9 +249,14 @@ jobs:
           [ -n "$version" ] || { echo "version introuvable dans NeuralAmpModeler/config.h"; exit 1; }
           ( cd build/linux && rm -f "../linux-appimage/VoLum-linux-x86_64-$version.vst3.zip" \
             && zip -qr "../linux-appimage/VoLum-linux-x86_64-$version.vst3.zip" VoLum.vst3 )
+          ( cd build/linux && rm -f "../linux-appimage/VoLum-linux-x86_64-$version.lv2.zip" \
+            && zip -qr "../linux-appimage/VoLum-linux-x86_64-$version.lv2.zip" VoLum.lv2 )
+          ( cd build/linux && rm -f "../linux-appimage/VoLum-linux-x86_64-$version.clap.zip" \
+            && zip -q "../linux-appimage/VoLum-linux-x86_64-$version.clap.zip" VoLum.clap )
           cd build/linux-appimage
           rm -f SHA256SUMS.txt
-          sha256sum VoLum-linux-x86_64-"$version".AppImage VoLum-linux-x86_64-"$version".vst3.zip > SHA256SUMS.txt
+          sha256sum VoLum-linux-x86_64-"$version".AppImage VoLum-linux-x86_64-"$version".vst3.zip \
+            VoLum-linux-x86_64-"$version".lv2.zip VoLum-linux-x86_64-"$version".clap.zip > SHA256SUMS.txt
           cat SHA256SUMS.txt
         shell: bash
 
@@ -243,6 +268,8 @@ jobs:
             build/linux-appimage/*.AppImage
             build/linux-appimage/*.AppImage.zsync
             build/linux-appimage/*.vst3.zip
+            build/linux-appimage/*.lv2.zip
+            build/linux-appimage/*.clap.zip
             build/linux-appimage/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14
@@ -270,6 +297,8 @@ jobs:
             build/linux-appimage/*.AppImage \
             build/linux-appimage/*.AppImage.zsync \
             build/linux-appimage/*.vst3.zip \
+            build/linux-appimage/*.lv2.zip \
+            build/linux-appimage/*.clap.zip \
             build/linux-appimage/SHA256SUMS.txt \
             --clobber
           gh release edit "$tag" --latest
