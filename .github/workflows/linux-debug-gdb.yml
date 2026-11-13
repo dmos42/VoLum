@@ -1,10 +1,12 @@
 name: Linux debug
 
-# One-off diagnosis harness: the rig-import test's phase 3 aborts in the plain
-# Release build (glibc: "double free detected in tcache 2") and passes under both
-# ASan and gdb, which points at a timing- or layout-dependent teardown bug. This
-# workflow reproduces the plain build's crash with core dumps enabled and prints
-# the stack of every thread from the core, which is the evidence the CI log lacks.
+# One-off diagnosis harness, repurposed as a soak test: the rig-import test used
+# to abort intermittently in the plain Release build (glibc heap corruption at
+# editor teardown), and never under ASan or gdb. The suspect was two Xlib
+# threads against an uninitialized Xlib; host-support.h now calls XInitThreads
+# at static-init time. This workflow loops the plain test - no gdb, whose
+# scheduling hid the crash - so every push gives the fix a dozen chances to
+# fail. Remove it once the main jobs have stayed green for a while.
 
 on:
   push:
@@ -16,8 +18,8 @@ env:
   DEBIAN_FRONTEND: noninteractive
 
 jobs:
-  coredump:
-    name: rig import, core dump on abort
+  soak:
+    name: rig import, plain loop
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -34,43 +36,35 @@ jobs:
         run: bash download-vst3-sdk.sh
         shell: bash
 
-      - name: Install build and debug tools
+      - name: Install build tools
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             ninja-build xvfb libx11-dev libgl1-mesa-dev libglu1-mesa-dev libatomic1 libasound2-dev \
-            libglib2.0-dev dbus dbus-daemon dbus-bin python3-gi gir1.2-glib-2.0 gdb
+            libglib2.0-dev dbus dbus-daemon dbus-bin python3-gi gir1.2-glib-2.0
         shell: bash
 
       - name: Build
         run: |
           cmake -S NeuralAmpModeler/linux -B build/linux -G Ninja \
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo -DVOLUM_COPY_RIGS=OFF
+            -DCMAKE_BUILD_TYPE=Release -DVOLUM_COPY_RIGS=OFF
           cmake --build build/linux
         shell: bash
 
-      - name: Run the import test under gdb, in a loop
-        env:
-          VOLUM_PROBE_WRAP: gdb -batch -ex 'set disable-randomization off' -ex run -ex 'echo \n=== STACKS ===\n' -ex 'thread apply all bt' -ex quit --args
+      - name: Loop the plain import test
         run: |
-          # The abort is intermittent (it skipped past ASan and a first gdb pass),
-          # so the test is looped until a run dies under gdb or the loop is spent.
-          # gdb reports SIGABRT with symbols from the RelWithDebInfo build; no core
-          # file is involved, which matters because the software renderer's memory
-          # makes cores truncate into uselessness.
           hit=0
           for i in $(seq 1 12); do
             echo "=== iteration $i ==="
             code=0
             out="$(NeuralAmpModeler/linux/test/rig-import-test.bash build/linux 2>&1)" || code=$?
-            printf '%s\n' "$out" | tail -60
-            if printf '%s\n' "$out" | grep -q '=== STACKS ==='; then
-              echo "abort attrape sous gdb a l'iteration $i"
+            printf '%s\n' "$out" | tail -12
+            if [ "$code" -ne 0 ]; then
+              echo "echec a l'iteration $i"
+              printf '%s\n' "$out" | tail -60
               hit=1
               break
             fi
-            [ "$code" -eq 0 ] || { echo "echec sans pile a l'iteration $i"; break; }
           done
-          [ "$hit" -eq 1 ] || echo "aucun abort attrape sous gdb"
-          [ "$code" -eq 0 ] || exit "$code"
+          [ "$hit" -eq 1 ] && exit 1 || echo "12 iterations sans echec"
         shell: bash
