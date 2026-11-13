@@ -34,6 +34,7 @@ struct Options
   std::string outFile; // write the plug-in output to a WAV as well
   bool outRequested = false; // an explicit --out: a WAV input then plays live, not offline
   bool noIn = false; // --no-in: no capture stream at all
+  bool noMidi = false; // --no-midi: no ALSA seq port for the plug-in to listen on
   double rate = 0.0; // 0 = whatever the device prefers, starting from 48000
   // The block size handed to the plug-in: 256 frames is 5.33 ms at 48 kHz, big enough that
   // a neural model is not re-entered every 1.3 ms, small enough that a guitar still feels

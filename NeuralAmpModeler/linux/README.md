@@ -392,6 +392,18 @@ printed by default (`--meter N` still asks for them), and closing the window is 
 ./build/linux/volum-app --list          # device names to put in app.conf
 ```
 
+The standalone also has a MIDI source now ([issue #11](https://github.com/dmos42/VoLum/issues/11)):
+on start it opens an ALSA seq client named `VoLum` with one readable port `MIDI In`, the thing
+`aconnect`, `qjackctl` and the desktop patchbays list by name. Whatever a controller sends is
+drained once per block, stamped on the audio clock, and handed to the plug-in the way a DAW
+would - the recall CC, the footswitches and the program changes of the MIDI section all answer
+in the standalone exactly as they do in the DAW:
+
+```bash
+aconnect 28:0 129:0        # branch a controller into VoLum's MIDI In
+./build/linux/volum-app --no-midi   # or run without any port at all
+```
+
 What it deliberately is not: a DAW. One stereo pair in and out, no timeline, no routing, no
 MIDI in the host yet ([issue #6](https://github.com/dmos42/VoLum/issues/6)).
 
@@ -587,9 +599,7 @@ Not implemented yet, each with a `TODO(linux)` at the site:
   `ITextEntryControl`), not by the toolkit.
 * Not covered: MIDI 2, multiple simultaneous instances tested under a real host, HiDPI
   fractional scaling, ARM (`aarch64-linux` is wired up in `CMakeLists.txt` but never built) —
-  [issue #6](https://github.com/dmos42/VoLum/issues/6). And in `volum-app` there is no MIDI
-  source at all: a DAW hands the plug-in its MIDI, the standalone has nobody to, which is
-  [issue #11](https://github.com/dmos42/VoLum/issues/11).
+  [issue #6](https://github.com/dmos42/VoLum/issues/6).
 * The package carries no signature: the AppImage, its `.zsync`, the VST3 zip and
   `SHA256SUMS.txt` are built and published by CI
   ([issue #13](https://github.com/dmos42/VoLum/issues/13)), but nothing proves who made
@@ -603,7 +613,7 @@ Not implemented yet, each with a `TODO(linux)` at the site:
   only `No plugins found`. Check a hand-made build with
   `objdump -T .../VoLum.vst3.so | grep -o 'GLIBC_2\.[0-9]*' | sort -Vu | tail -1`. Issue #7.
 
-`volum-live` has limits of its own, and they are deliberate: no MIDI, one stereo pair of
+`volum-live` has limits of its own, and they are deliberate: one stereo pair of
 buses, no resampling inside the host. Capture and playback have to agree on one rate, which
 the tool checks and reports instead of hiding. A card that only does 44 100 Hz — many small
 USB amps, the Yamaha THR10X among them — therefore runs the plug-in at 44 100 Hz, and it is

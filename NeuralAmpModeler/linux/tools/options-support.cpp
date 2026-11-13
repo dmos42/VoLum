@@ -122,6 +122,11 @@ bool applyOption(const std::string& key, const char* value, Options& opt, std::s
     opt.noIn = true;
     return true;
   }
+  if (key == "no-midi")
+  {
+    opt.noMidi = true;
+    return true;
+  }
   if (key == "list")
   {
     opt.listDevices = true;

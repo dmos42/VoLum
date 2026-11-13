@@ -26,6 +26,7 @@
 #include "alsa-support.h"
 #include "engine-support.h"
 #include "host-support.h"
+#include "midi-support.h"
 #include "options-support.h"
 #include "wav-support.h"
 
@@ -89,9 +90,9 @@ void closeAudio(Session& session);
  * mid-run, and reopening means putting it back to sleep and setting it up
  * again at whatever the new device agreed to. */
 int runRealtime(const Options& opt, Session& session, Engine& eng, EditorSession& editor, bool hasEditor,
-                WavWriter& writer, Loaded& plugin);
+                WavWriter& writer, Loaded& plugin, MidiIn& midi);
 int runOffline(const Options& opt, Session& session, Engine& eng, WavWriter& writer, EditorSession& editor,
-               bool hasEditor);
+               bool hasEditor, MidiIn& midi);
 
 /** What both hosts print when the loop stops: how many blocks went through, how many
  * times the device ran dry, what to do about that, and whether anything came out. Takes

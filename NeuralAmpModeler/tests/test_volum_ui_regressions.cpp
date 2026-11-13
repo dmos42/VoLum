@@ -3700,6 +3700,89 @@ TEST_CASE("tier2h host undo refreshes the unsaved flag and Enter confirms off th
   RequireDoesNotContain(pickBody, "if (volum::content::DefaultCaptureSelection(amp, s, c))");
 }
 
+TEST_CASE("tier2k the standalone has a MIDI port and the plug-in answers the legacy CC event")
+{
+  // Issue #11: a DAW hands the plug-in its MIDI, the standalone had nobody to.
+  // The port is an ALSA seq client named "VoLum" with one readable port "MIDI
+  // In" - what aconnect and the desktop patchbays list - drained non-blocking
+  // once per block, on the audio clock the block loop already keeps.
+  const std::string midiSource = ReadText(RepoRoot() / "NeuralAmpModeler" / "linux" / "tools" / "midi-support.cpp");
+  RequireContains(midiSource, "snd_seq_open(&mSeq, \"default\", SND_SEQ_OPEN_INPUT, 0)");
+  RequireContains(midiSource, "snd_seq_set_client_name(mSeq, \"VoLum\")");
+  RequireContains(midiSource, "snd_seq_create_simple_port(mSeq, \"MIDI In\"");
+  // A sender connects to it, so it must be subscribable, and the drain must
+  // never make the audio loop wait.
+  RequireContains(midiSource, "SND_SEQ_PORT_CAP_WRITE | SND_SEQ_PORT_CAP_SUBS_WRITE");
+  RequireContains(midiSource, "snd_seq_nonblock(mSeq, 1)");
+  // The stamp: an event sent during the previous block plays at the front of
+  // this one, and nothing lands outside the block it is stamped for.
+  RequireContains(midiSource, "offset < 0");
+  RequireContains(midiSource, "offset > blockFrames - 1");
+  // ALSA hands a bend over as -8192..8191; a cable carries two 7-bit halves.
+  RequireContains(midiSource, "const int bend = ev.data.control.value + 8192;");
+
+  // What a cable would not carry (quarter frames, clock) is sent by the check
+  // and expected to disappear: five useful events out of seven.
+  const std::string midiCheck = ReadText(RepoRoot() / "NeuralAmpModeler" / "linux" / "tools" / "volum-midi-check.cpp");
+  RequireContains(midiCheck, "SND_SEQ_EVENT_QFRAME");
+  RequireContains(midiCheck, "SND_SEQ_EVENT_START");
+  RequireContains(midiCheck, "cinq evenements utiles, l'horloge et la queue laisses tomber");
+  RequireContains(midiCheck, "alsa seq indisponible");
+
+  // The host half: the drained bytes become VST3 events - notes typed, the rest
+  // through the legacy CC event, the one the plug-in's MIDI-in path answers.
+  const std::string engine = ReadText(RepoRoot() / "NeuralAmpModeler" / "linux" / "tools" / "engine-support.h");
+  RequireContains(engine, "inline bool MidiBytesToEvent(const uint8_t* bytes, size_t len, int offsetSamples, Steinberg::Vst::Event& ev)");
+  RequireContains(engine, "Steinberg::Vst::EventList events;");
+  RequireContains(engine, "void queueMidi(const uint8_t* bytes, size_t len, int offsetSamples)");
+  RequireContains(engine, "Steinberg::Vst::kCtrlProgramChange");
+  RequireContains(engine, "Steinberg::Vst::kPitchBend");
+  RequireContains(engine, "Steinberg::Vst::kAfterTouch");
+
+  const std::string runner = ReadText(RepoRoot() / "NeuralAmpModeler" / "linux" / "tools" / "live-runner.cpp");
+  RequireContains(runner, "midi.drain(midiEvents, session.rate, int(eng.blockFrames), midiErr)");
+  RequireContains(runner, "eng.queueMidi(ev.bytes.data(), ev.bytes.size(), ev.offset)");
+  // The port exists before --check answers, so a check reports it with the rest.
+  REQUIRE(runner.find("MidiIn midi;") < runner.find("if (opt.check)"));
+  // A machine without a seq driver is a normal answer, not a fault.
+  RequireContains(runner, "le plugin tournera sans MIDI");
+
+  const std::string options = ReadText(RepoRoot() / "NeuralAmpModeler" / "linux" / "tools" / "options-support.cpp");
+  RequireContains(options, "opt.noMidi = true");
+  const std::string app = ReadText(RepoRoot() / "NeuralAmpModeler" / "linux" / "tools" / "volum-app.cpp");
+  RequireContains(app, "--no-midi");
+
+  // The probe half: scripted MIDI injection, so a broken MIDI path and an absent
+  // port never look alike in CI.
+  const std::string probe = ReadText(RepoRoot() / "NeuralAmpModeler" / "linux" / "tools" / "vst3-probe.cpp");
+  RequireContains(probe, "--midi");
+  RequireContains(probe, "MidiBytesToEvent");
+
+  // The plug-in side (iPlug2 is in the repo): a host that hands MIDI over as a
+  // byte stream sends everything that is not a note as kLegacyMIDICCOutEvent.
+  // Dropping it left the recall CC, the footswitches and program changes
+  // silently unanswered on those hosts.
+  const std::string processorBase =
+    ReadText(RepoRoot() / "iPlug2" / "IPlug" / "VST3" / "IPlugVST3_ProcessorBase.cpp");
+  RequireContains(processorBase, "case Event::kLegacyMIDICCOutEvent:");
+  RequireContains(processorBase, "ControllerNumbers::kCtrlProgramChange");
+  RequireContains(processorBase, "ControllerNumbers::kPitchBend");
+  RequireContains(processorBase, "ControllerNumbers::kAfterTouch");
+  const auto legacy = processorBase.find("case Event::kLegacyMIDICCOutEvent:");
+  REQUIRE(legacy != std::string::npos);
+  const std::string legacyBody = processorBase.substr(legacy, 1700);
+  RequireContains(legacyBody, "ProcessMidiMsg(msg)");
+  RequireContains(legacyBody, "processorQueue.Push(msg)");
+
+  const std::string cmake = ReadText(RepoRoot() / "NeuralAmpModeler" / "linux" / "CMakeLists.txt");
+  RequireContains(cmake, "volum-midi-check");
+  RequireContains(cmake, "public.sdk/source/vst/hosting/eventlist.cpp");
+
+  const std::string workflow = ReadText(RepoRoot() / ".github" / "workflows" / "linux-vst3.yml");
+  RequireContains(workflow, "--midi 0.5:B0:66:07");
+  RequireContains(workflow, "volum-midi-check");
+}
+
 TEST_CASE("tier2j the standalone gets an audio settings panel that rewrites app.conf")
 {
   // Issue #10: the standalone had no settings window of its own - the keys in

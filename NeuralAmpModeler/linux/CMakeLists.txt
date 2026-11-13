@@ -370,6 +370,7 @@ set(VOLUM_HOST_SDK_SOURCES
   "${VST3_SDK}/pluginterfaces/base/funknown.cpp"
   "${VST3_SDK}/pluginterfaces/base/ustring.cpp"
   "${VST3_SDK}/public.sdk/source/common/commoniids.cpp"
+  "${VST3_SDK}/public.sdk/source/vst/hosting/eventlist.cpp"
   "${VST3_SDK}/public.sdk/source/vst/vstinitiids.cpp"
 )
 
@@ -379,6 +380,7 @@ set(VOLUM_HOST_SDK_SOURCES
 # standalone is supposed to hear the same guitar, so it gets the same code.
 set(VOLUM_HOST_SUPPORT_SOURCES
   "${CMAKE_CURRENT_LIST_DIR}/tools/alsa-support.cpp"
+  "${CMAKE_CURRENT_LIST_DIR}/tools/midi-support.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/tools/options-support.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/tools/wav-support.cpp"
   "${CMAKE_CURRENT_LIST_DIR}/tools/live-runner.cpp"
@@ -575,6 +577,32 @@ if(VOLUM_BUILD_PANEL_CHECK)
   endif()
 
   set_target_properties(volum-panel-check PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+endif()
+
+# ---------------------------------------------------------------------------
+# volum-midi-check: the standalone's MIDI port (issue #11), both ends in one
+# process - the port volum-app opens, and a sender connected to it. No audio, no
+# plug-in: what is checked is the ALSA half, the octets a controller's cable
+# would carry. A machine without the seq driver is a normal answer (exit 3),
+# everything else is a fault.
+# ---------------------------------------------------------------------------
+
+option(VOLUM_BUILD_MIDI_CHECK "Build volum-midi-check, the headless MIDI-port check" ON)
+
+if(VOLUM_BUILD_MIDI_CHECK AND ALSA_FOUND)
+  add_executable(volum-midi-check
+    "${CMAKE_CURRENT_LIST_DIR}/tools/volum-midi-check.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/tools/midi-support.cpp"
+  )
+
+  target_include_directories(volum-midi-check PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}/tools"
+    ${ALSA_INCLUDE_DIRS})
+  target_link_libraries(volum-midi-check PRIVATE ${ALSA_LIBRARIES})
+  target_compile_features(volum-midi-check PRIVATE cxx_std_17)
+
+  set_target_properties(volum-midi-check PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
 endif()
 

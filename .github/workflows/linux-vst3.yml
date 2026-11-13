@@ -136,6 +136,26 @@ jobs:
             || { echo "volum-app n'a pas accepte le conf ecrit par le panneau"; exit 1; }
         shell: bash
 
+      - name: Check the standalone's MIDI port
+        # The ALSA seq port the standalone opens (issue #11): a sender connects to
+        # it in the same process, and note on/off, CC, program change and pitch
+        # bend come back as the exact bytes a cable would carry, stamped inside
+        # the block; clock and queue bytes are dropped; a silent drain does not
+        # block. Exit code 3 means the runner has no seq driver - a machine
+        # without MIDI, not a broken port - so it is a warning, not a failure.
+        run: |
+          out="$(build/linux/volum-midi-check 2>&1)"
+          code=$?
+          printf '%s\n' "$out"
+          if [ "$code" -eq 3 ]; then
+            echo "pas de pilote seq sur le runner : check ignore"
+          else
+            [ "$code" -eq 0 ] || exit "$code"
+            printf '%s\n' "$out" | grep -q 'port alsa conforme' \
+              || { echo "le check du port MIDI n'a rien verifie"; exit 1; }
+          fi
+        shell: bash
+
       - name: Stage a system installation
         # What an RPM, a tarball and an AppImage are all built on: the same install
         # rules, staged into a build root. Checked here rather than at release time,
@@ -192,6 +212,25 @@ jobs:
             --ui-only --ui --uiseconds 6 \
             --resize 1:900x700 --resize 2:640x480 --resize 3:1100x850 \
             --resize 4:1x1 --resize 5:900x700
+        shell: bash
+
+      - name: Check the plug-in reacts to MIDI
+        # The recall path end to end (issue #11): a controller sends CC #102, the
+        # probe hands it to the plug-in the way a DAW would (the block's event
+        # list), the plug-in decodes it to a recall and answers in its diagnostic
+        # log once the idle timer runs it - either "recall slot=" or "has no
+        # playable Sound; ignored", both of which prove the path was walked.
+        run: |
+          xdg="$(mktemp -d)"
+          export XDG_CONFIG_HOME="$xdg"
+          out="$(xvfb-run -a ./build/linux/volum-vst3-probe \
+            build/linux/VoLum.vst3/Contents/x86_64-linux/VoLum.vst3.so \
+            --ui --seconds 1 --uiseconds 4 --midi 0.5:B0:66:07 2>&1)"
+          code=$?
+          printf '%s\n' "$out"
+          [ "$code" -eq 0 ] || exit "$code"
+          grep -q '\[midi\]' "$xdg/VoLum/volum.log" \
+            || { echo "le plug-in n'a rien repondu au recall CC 102 : chemin MIDI casse"; exit 1; }
         shell: bash
 
       - name: Run the live host over a file

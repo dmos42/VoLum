@@ -24,6 +24,10 @@
                     [--click SEC:X:Y]  press and release the mouse at X:Y inside the
                                        editor window after SEC seconds, no real mouse
                                        involved
+                    [--midi SEC:XX:..] hand raw MIDI bytes to the plug-in SEC seconds
+                                       into the audio run - what a connected controller
+                                       would arrive as. The plug-in's answer is read
+                                       from its diagnostic log, not from here
                     [--ui-only]        skip the audio run
 
  Exit codes: 0 ok, 2 cannot load, 3 no factory/class, 4 could not instantiate,
@@ -32,10 +36,12 @@
  ==============================================================================
 */
 
+#include "engine-support.h"
 #include "host-support.h"
 #include "wav-support.h"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -76,6 +82,10 @@ struct Options
   int maxParams = 250;
   std::string outFile; // write the plug-in output while the tone runs, to look at it afterwards
   std::vector<std::pair<int, double>> params; // parameter index -> normalized value
+  // --midi SEC:XX:XX:XX - raw MIDI bytes handed to the plug-in SEC seconds into the
+  // audio run, the way a host would (the block's event list). What the plug-in does
+  // with them is read from its own diagnostic log afterwards, not from here.
+  std::vector<std::pair<double, std::vector<uint8_t>>> midi;
 };
 
 bool parseArgs(int argc, char** argv, Options& opt)
@@ -133,6 +143,47 @@ bool parseArgs(int argc, char** argv, Options& opt)
       }
 
       opt.steps.push_back({std::atof(v), false, std::atoi(first + 1), std::atoi(second + 1)});
+    }
+    else if (const char* v = optionValue(arg, "--midi", i, argc, argv))
+    {
+      // SEC:XX:XX:XX, repeatable. The bytes are what a cable would carry, so a
+      // scripted foot controller is two hex bytes away: B0:66:07 is CC #102, value 7 -
+      // the recall CC, slot 7.
+      const char* colon = std::strchr(v, ':');
+
+      if (!colon)
+      {
+        fprintf(stderr, "--midi attend SECONDES:XX:XX...\n");
+        return false;
+      }
+
+      std::vector<uint8_t> bytes;
+      const char* p = colon + 1;
+
+      while (*p)
+      {
+        char hex[3] = { p[0], p[1], 0 };
+
+        if (!hex[1] || !std::isxdigit(hex[0]) || !std::isxdigit(hex[1]))
+        {
+          fprintf(stderr, "--midi attend des octets hexadecimaux separes par ':'\n");
+          return false;
+        }
+
+        bytes.push_back(static_cast<uint8_t>(std::strtoul(hex, nullptr, 16)));
+        p += 2;
+
+        if (*p == ':')
+          ++p;
+      }
+
+      if (bytes.empty())
+      {
+        fprintf(stderr, "--midi attend au moins un octet\n");
+        return false;
+      }
+
+      opt.midi.emplace_back(std::atof(v), std::move(bytes));
     }
     else if (const char* v = optionValue(arg, "--out-file", i, argc, argv))
       opt.outFile = v;
@@ -232,6 +283,13 @@ int main(int argc, char** argv)
     data.inputs = &inputs;
     data.outputs = &outputs;
 
+    // --midi steps ride the same event list a DAW fills: the bytes are decoded to
+    // VST3 events once, the block that is due carries them, process() clears the
+    // list so nothing is delivered twice.
+    Steinberg::Vst::EventList midiEvents;
+    data.inputEvents = &midiEvents;
+    size_t nextMidi = 0;
+
     double peakIn = 0.0, peakOut = 0.0, sumOut = 0.0, sumIn = 0.0;
     long countedSamples = 0;
     // Recorded as it runs, not reconstructed afterwards: what matters here is the level
@@ -275,7 +333,20 @@ int main(int argc, char** argv)
           inPointers[c][i] = static_cast<float>(c == 0 ? tone : 0.0);
       }
 
+      while (nextMidi < opt.midi.size()
+             && opt.midi[nextMidi].first <= std::chrono::duration<double>(std::chrono::steady_clock::now() - runStart)
+                                              .count())
+      {
+        Steinberg::Vst::Event ev;
+
+        if (MidiBytesToEvent(opt.midi[nextMidi].second.data(), opt.midi[nextMidi].second.size(), 0, ev))
+          midiEvents.addEvent(ev);
+
+        ++nextMidi;
+      }
+
       const Steinberg::tresult r = plugin.processor->process(data);
+      midiEvents.clear();
 
       if (writer.isOpen())
         writer.block(outPointers, blockLength);

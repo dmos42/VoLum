@@ -68,6 +68,8 @@ void printUsage(const char* argv0)
     "  --in-file F.wav      ecouter un fichier dans la sortie au lieu du micro\n"
     "  --out-file F.wav     ecrire aussi la sortie dans un WAV\n"
     "  --no-ui              ne pas ouvrir la fenetre\n"
+    "  --no-midi            pas de port MIDI (par defaut : un port \"VoLum\" que\n"
+    "                       aconnect peut brancher, et le plugin ecoute)\n"
     "  --check              verifier la configuration et quitter\n"
     "  --list               lister les peripheriques ALSA et quitter\n"
     "  --config PATH        fichier de reglages (defaut : ~/.config/VoLum/app.conf)\n"

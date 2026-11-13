@@ -231,7 +231,7 @@ void closeAudio(Session& session)
 }
 
 int runRealtime(const Options& opt, Session& session, Engine& eng, EditorSession& editor, bool hasEditor,
-                WavWriter& writer, Loaded& plugin)
+                WavWriter& writer, Loaded& plugin, MidiIn& midi)
 {
   Stream& cap = session.cap;
   Stream& play = session.play;
@@ -277,9 +277,25 @@ int runRealtime(const Options& opt, Session& session, Engine& eng, EditorSession
       status = 4;
   };
 
+  std::vector<RawMidiEvent> midiEvents;
+  std::string midiErr;
+
   while (!stopRequested() && status == 0 && std::chrono::steady_clock::now() < deadline)
   {
     pollConf();
+
+    // The port is drained once per block, on the audio clock: what a foot
+    // controller sent is stamped into the block now starting, and handed to the
+    // plug-in the way a DAW would - through the event list the block carries.
+    if (midi.opened() && !midi.drain(midiEvents, session.rate, int(eng.blockFrames), midiErr))
+    {
+      fprintf(stderr, "midi : %s\n", midiErr.c_str());
+      status = 4;
+      break;
+    }
+
+    for (const RawMidiEvent& ev : midiEvents)
+      eng.queueMidi(ev.bytes.data(), ev.bytes.size(), ev.offset);
 
     const unsigned int frames = eng.blockFrames;
 
@@ -350,7 +366,7 @@ int runRealtime(const Options& opt, Session& session, Engine& eng, EditorSession
 }
 
 int runOffline(const Options& opt, Session& session, Engine& eng, WavWriter& writer, EditorSession& editor,
-               bool hasEditor)
+               bool hasEditor, MidiIn& midi)
 {
   const std::vector<float>& fileIn = session.fileIn;
   const int fileChannels = session.fileChannels;
@@ -363,8 +379,20 @@ int runOffline(const Options& opt, Session& session, Engine& eng, WavWriter& wri
   FileSource file{&fileIn, fileChannels, 0};
   long doneFrames = 0;
 
+  std::vector<RawMidiEvent> midiEvents;
+  std::string midiErr;
+
   while (!stopRequested())
   {
+    if (midi.opened() && !midi.drain(midiEvents, rate, int(frames), midiErr))
+    {
+      fprintf(stderr, "midi : %s\n", midiErr.c_str());
+      return 4;
+    }
+
+    for (const RawMidiEvent& ev : midiEvents)
+      eng.queueMidi(ev.bytes.data(), ev.bytes.size(), ev.offset);
+
     fillFromFile(file, frames, eng.inPtr, opt.gain);
     doneFrames += int(frames);
 
@@ -488,6 +516,23 @@ int runHost(const Options& opt, const char* windowTitle, const char* toolName)
     return exitCode;
   }
 
+  // The standalone's MIDI source (issue #11): one readable ALSA seq port, named
+  // so a patchbay finds it. No seq driver on the machine is a normal answer - the
+  // run continues without MIDI, and the reason is on the terminal. Opened before
+  // --check answers, so a check reports the port along with the rest.
+  MidiIn midi;
+
+  if (!opt.noMidi)
+  {
+    std::string midiErr;
+
+    if (midi.open(midiErr))
+      printf("midi : port \"VoLum\" \"MIDI In\" ouvert (%s) - branche une source : aconnect <client:port> %s\n",
+             midi.portId().c_str(), midi.portId().c_str());
+    else
+      printf("midi : pas de port (%s) - le plugin tournera sans MIDI\n", midiErr.c_str());
+  }
+
   if (opt.check)
   {
     printf("verification : tout est negocie, rien n'est joue (--check)\n");
@@ -535,8 +580,8 @@ int runHost(const Options& opt, const char* windowTitle, const char* toolName)
     exitCode = 2;
   }
 
-  const int status = session.offline ? runOffline(opt, session, eng, writer, editor, hasEditor)
-                                     : runRealtime(opt, session, eng, editor, hasEditor, writer, plugin);
+  const int status = session.offline ? runOffline(opt, session, eng, writer, editor, hasEditor, midi)
+                                     : runRealtime(opt, session, eng, editor, hasEditor, writer, plugin, midi);
 
   if (status)
     exitCode = status;
