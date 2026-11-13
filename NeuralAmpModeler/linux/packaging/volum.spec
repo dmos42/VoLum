@@ -42,7 +42,7 @@ bundles a DAW loads; the bundled capture collection is the volum-rigs package.
 
 %install
 mkdir -p %{buildroot}/usr/share/VoLum
-cp -a usr %{buildroot}/usr
+cp -a usr/. %{buildroot}/usr/
 cp -a VoLum/VoLumRigs %{buildroot}/usr/share/VoLum/
 
 %files

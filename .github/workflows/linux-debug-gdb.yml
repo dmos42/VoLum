@@ -51,8 +51,12 @@ jobs:
           cmake --build build/linux
         shell: bash
 
-      - name: Loop the plain import test
+      - name: Loop the plain import test, catch a stack on failure
+        env:
+          MALLOC_CHECK_: 3
+          VOLUM_PROBE_WRAP: gdb -batch -ex 'set disable-randomization off' -ex run -ex 'echo \n=== STACKS ===\n' -ex 'thread apply all bt' -ex quit --args
         run: |
+          unset VOLUM_PROBE_WRAP
           hit=0
           for i in $(seq 1 12); do
             echo "=== iteration $i ==="
@@ -66,5 +70,13 @@ jobs:
               break
             fi
           done
-          [ "$hit" -eq 1 ] && exit 1 || echo "12 iterations sans echec"
+          if [ "$hit" -ne 1 ]; then
+            echo "12 iterations sans echec"
+            exit 0
+          fi
+          echo "=== reprise sous gdb ==="
+          code=0
+          out="$(NeuralAmpModeler/linux/test/rig-import-test.bash build/linux 2>&1)" || code=$?
+          printf '%s\n' "$out" | tail -120
+          exit "$code"
         shell: bash
