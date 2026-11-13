@@ -106,7 +106,7 @@ jobs:
           apt-get update
           apt-get install -y --no-install-recommends \
             build-essential cmake pkg-config ninja-build gcc-12 g++-12 xvfb libx11-dev libgl1-mesa-dev libglu1-mesa-dev libatomic1 libasound2-dev \
-            libglib2.0-dev lv2-dev squashfs-tools zsync appstream desktop-file-utils zip binutils curl gnupg file
+            libglib2.0-dev lv2-dev squashfs-tools zsync appstream desktop-file-utils zip binutils curl gnupg file rpm cpio
           mkdir -p -m 755 /etc/apt/keyrings
           curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
             -o /etc/apt/keyrings/githubcli-archive-keyring.gpg
@@ -247,6 +247,44 @@ jobs:
           grep -q 'XEmbed confirme' /tmp/pkg-win.log
           test -s /tmp/pkg-win.wav
         shell: bash
+      - name: The tarball and the RPM a distribution wants (issue #4)
+        # dist.bash stages the same install rules into a /usr tree, splits the rig
+        # collection out of it (a 4 MB package and a 77 MB data set do not update
+        # together) and builds the two RPMs from the two tarballs. What is checked
+        # here is what a package manager would check: the main package carries no
+        # capture, the data package carries all of them, the menu entry validates,
+        # and the RPMs unpack to the files the spec promises.
+        run: |
+          NeuralAmpModeler/linux/packaging/dist.bash build/linux build/linux-dist
+          dist=build/linux-dist
+          rm -rf /tmp/tarroot && mkdir -p /tmp/tarroot
+          tar -C /tmp/tarroot -xzf "$dist"/VoLum-linux-x86_64-*.tar.gz
+          test -x /tmp/tarroot/usr/bin/volum-app
+          test -d /tmp/tarroot/usr/lib/vst3/VoLum.vst3/Contents/x86_64-linux
+          desktop-file-validate /tmp/tarroot/usr/share/applications/com.github.guitarlum.VoLum.desktop
+          if find /tmp/tarroot -name '*.nam' | grep -q .; then
+            echo "le tarball principal embarque les captures : elles ont leur propre paquet"
+            exit 1
+          fi
+          rm -rf /tmp/rigsroot && mkdir -p /tmp/rigsroot
+          tar -C /tmp/rigsroot -xzf "$dist"/VoLum-rigs-*.tar.gz
+          rigs=$(find /tmp/rigsroot -name '*.nam' | wc -l)
+          echo "captures dans le paquet de donnees : $rigs"
+          [ "$rigs" -ge 200 ] || { echo "le paquet de donnees est incomplet"; exit 1; }
+          rpm -qip "$dist"/volum-*.x86_64.rpm | head -4
+          rm -rf /tmp/rpmroot && mkdir -p /tmp/rpmroot
+          rpm2cpio "$dist"/volum-*.x86_64.rpm | (cd /tmp/rpmroot && cpio -idmu --quiet)
+          test -x /tmp/rpmroot/usr/bin/volum-app
+          test -d /tmp/rpmroot/usr/lib/vst3/VoLum.vst3/Contents/x86_64-linux
+          desktop-file-validate /tmp/rpmroot/usr/share/applications/com.github.guitarlum.VoLum.desktop
+          rm -rf /tmp/rpmrigs && mkdir -p /tmp/rpmrigs
+          rpm2cpio "$dist"/volum-rigs-*.noarch.rpm | (cd /tmp/rpmrigs && cpio -idmu --quiet)
+          rpmrigs=$(find /tmp/rpmrigs -name '*.nam' | wc -l)
+          echo "captures dans le RPM de donnees : $rpmrigs"
+          [ "$rpmrigs" -ge 200 ] || { echo "le RPM de donnees est incomplet"; exit 1; }
+        shell: bash
+
+
 
       - name: The zip a DAW wants, and the fingerprints of both
         # The same two names the release page carries today, made here so the page's
@@ -260,10 +298,15 @@ jobs:
             && zip -qr "../linux-appimage/VoLum-linux-x86_64-$version.lv2.zip" VoLum.lv2 )
           ( cd build/linux && rm -f "../linux-appimage/VoLum-linux-x86_64-$version.clap.zip" \
             && zip -q "../linux-appimage/VoLum-linux-x86_64-$version.clap.zip" VoLum.clap )
+          dist="$(ls ../linux-dist/VoLum-linux-x86_64-"$version".tar.gz ../linux-dist/VoLum-rigs-"$version".tar.gz \
+            ../linux-dist/volum-"$version"-1.*.rpm ../linux-dist/volum-rigs-"$version"-1.*.rpm 2>/dev/null)"
+          [ -n "$dist" ] || { echo "les paquets de distribution sont absents : l'etape dist a-t-elle tourne ?"; exit 1; }
           cd build/linux-appimage
           rm -f SHA256SUMS.txt
           sha256sum VoLum-linux-x86_64-"$version".AppImage VoLum-linux-x86_64-"$version".vst3.zip \
-            VoLum-linux-x86_64-"$version".lv2.zip VoLum-linux-x86_64-"$version".clap.zip > SHA256SUMS.txt
+            VoLum-linux-x86_64-"$version".lv2.zip VoLum-linux-x86_64-"$version".clap.zip \
+            ../linux-dist/VoLum-linux-x86_64-"$version".tar.gz ../linux-dist/VoLum-rigs-"$version".tar.gz \
+            ../linux-dist/volum-"$version"-1.*.rpm ../linux-dist/volum-rigs-"$version"-1.*.rpm > SHA256SUMS.txt
           cat SHA256SUMS.txt
         shell: bash
 
@@ -278,6 +321,8 @@ jobs:
             build/linux-appimage/*.lv2.zip
             build/linux-appimage/*.clap.zip
             build/linux-appimage/SHA256SUMS.txt
+            build/linux-dist/*.tar.gz
+            build/linux-dist/*.rpm
           if-no-files-found: error
           retention-days: 14
 
@@ -307,6 +352,8 @@ jobs:
             build/linux-appimage/*.lv2.zip \
             build/linux-appimage/*.clap.zip \
             build/linux-appimage/SHA256SUMS.txt \
+            build/linux-dist/*.tar.gz \
+            build/linux-dist/*.rpm \
             --clobber
           gh release edit "$tag" --latest
           gh release view "$tag" --json assets --jq '.assets[] | "\(.name) \(.size)"'
