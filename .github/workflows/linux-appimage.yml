@@ -202,6 +202,12 @@ jobs:
         # uses. `--no-ui` keeps this headless; the file-to-file equality is what says the
         # bundle inside the package is the bundle that was built, and not whatever else was
         # lying around in ~/.vst3 on the machine that made it.
+        #
+        # Compared from half a second in, like the two-host comparison in the plug-in job:
+        # the head of the file is the default rig's asynchronous staging, and which block
+        # the model lands on belongs to the scheduler, not to the package - a whole-file
+        # cmp made this step fail once on exactly that, three hundred milliseconds of
+        # silence in one run and not in the other.
         run: |
           python3 - <<'PY'
           import math, struct, wave
@@ -222,8 +228,9 @@ jobs:
           ./build/linux/volum-app \
             --in-file /tmp/ci-tone.wav --out-file /tmp/eng.wav --meter 0 --no-ui
           test -s /tmp/eng.wav
-          cmp /tmp/pkg.wav /tmp/eng.wav
-          echo "verifie : le paquet et le hors-paquet produisent le meme WAV ($(sha256sum /tmp/pkg.wav | cut -c1-8)…)"
+          skip="$((44 + 24000 * 4))"   # the 44-byte WAV header, then 0.5 s of stereo s16
+          cmp -i "$skip:$skip" /tmp/pkg.wav /tmp/eng.wav
+          echo "verifie : le paquet et le hors-paquet produisent le meme WAV une fois stabilises ($(sha256sum /tmp/pkg.wav | cut -c1-8)…)"
         shell: bash
 
       - name: Open the packaged window on Xvfb

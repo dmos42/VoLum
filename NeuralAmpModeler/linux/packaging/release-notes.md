@@ -32,7 +32,10 @@ uploads the artifacts into it.
 
 Numbers from the run that produced them: the image holds 249 `.nam` captures, and the
 packaged program played a 48 kHz 220 Hz tone into a WAV that came out **byte for byte the
-same** as the same tone through the unpackaged build of the same commit. That comparison is
+same**, from half a second in, as the same tone through the unpackaged build of the same
+commit — the head of the file is the default rig's asynchronous staging, whose block timing
+belongs to the scheduler and not to the package, so the comparison starts where both runs
+have settled. That comparison is
 the one worth having: an AppImage does not usually fail by refusing to start, it fails by
 loading some other copy of the plug-in — and neither a size nor a hash can see that.
 
