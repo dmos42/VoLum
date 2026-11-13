@@ -52,22 +52,32 @@ jobs:
       - name: Run the import test with core dumps on
         run: |
           # The runner VM allows sudo, so the core goes to a known absolute path
-          # instead of whatever systemd-coredump would do with it.
+          # instead of whatever systemd-coredump would do with it. The abort is
+          # intermittent (two red runs, then two green ones on the same commit),
+          # so the test is looped until a core exists or the loop is spent.
           sudo sysctl -w kernel.core_pattern=/tmp/core.%p
           ulimit -c unlimited
-          code=0
-          out="$(NeuralAmpModeler/linux/test/rig-import-test.bash build/linux 2>&1)" || code=$?
-          printf '%s\n' "$out"
-          echo "--- cores ---"
-          ls -l /tmp/core.* 2>/dev/null || echo "aucun core"
+          for i in $(seq 1 12); do
+            echo "=== iteration $i ==="
+            code=0
+            out="$(NeuralAmpModeler/linux/test/rig-import-test.bash build/linux 2>&1)" || code=$?
+            printf '%s\n' "$out" | tail -12
+            if ls /tmp/core.* >/dev/null 2>&1; then
+              echo "core obtenu a l'iteration $i"
+              break
+            fi
+            [ "$code" -eq 0 ] || { echo "echec sans core a l'iteration $i"; break; }
+          done
           if ls /tmp/core.* >/dev/null 2>&1; then
             core="$(ls -t /tmp/core.* | head -1)"
             gdb -batch \
               -ex 'set pagination off' \
               -ex 'thread apply all bt' \
-              build/linux/volum-vst3-probe "$core" 2>&1 | tail -120
+              build/linux/volum-vst3-probe "$core" 2>&1 | tail -140
             echo "=== modules ==="
             gdb -batch -ex 'info sharedlibrary' build/linux/volum-vst3-probe "$core" 2>&1 | grep -i volum
+          else
+            echo "aucun core apres la boucle"
           fi
           [ "$code" -eq 0 ] || exit "$code"
         shell: bash
