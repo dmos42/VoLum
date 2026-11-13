@@ -5,10 +5,9 @@
      and of the icons beside it; what ships that build today is the fork holding the Linux
      port, which is why the bug tracker below is the fork's.
 
-     Two claims deliberately absent: MIDI (the stand-alone has no MIDI source, issue
-     https://github.com/dmos42/VoLum/issues/11) and any format other than VST3 (issue
-     https://github.com/dmos42/VoLum/issues/9). The description says what the artifact on the
-     release page does, measured by the probe harness and the packaged smoke run. -->
+     The claims here are the ones measured by the probe harness and the packaged smoke run:
+     the stand-alone with its audio settings panel and MIDI input, the desktop's portal
+     dialogs, and the VST3 bundle the LV2 and CLAP wrappers drive. -->
 <component type="desktop-application">
   <id>com.github.guitarlum.VoLum</id>
   <metadata_license>CC0-1.0</metadata_license>
@@ -70,6 +69,9 @@
     <keyword>namm</keyword>
     <keyword>rig</keyword>
     <keyword>vst3</keyword>
+    <keyword>lv2</keyword>
+    <keyword>clap</keyword>
+    <keyword>midi</keyword>
   </keywords>
 
   <provides>
@@ -77,15 +79,19 @@
   </provides>
 
   <releases>
-    <release version="1.3.1" date="2026-11-08">
+    <release version="1.3.1" date="2026-11-13">
       <description>
-        <p>First packaged Linux build of this port: the stand-alone as one AppImage, and the
-        VST3 bundle as a zip, both carrying the same 249 bundled captures.</p>
+        <p>The stand-alone as one AppImage, the VST3 bundle as a zip, an LV2 bundle and a CLAP
+        module over the same engine, and the same 249 bundled captures in all of them. The
+        stand-alone has a settings window for its audio devices, a MIDI input a keyboard can
+        cable into, and a message box that answers; file, folder and colour dialogs are the
+        desktop's own, over the XDG portal.</p>
         <p>Measured, not assumed: the audio path, the editor window, host-side resizing, the
-        desktop's portal dialogs and the IN/OUT level columns are each checked by a headless
-        run in CI or by a script that counts lit pixels in the package's own window.</p>
+        portal dialogs, an import of a capture driven end to end with nobody clicking, and the
+        IN/OUT level columns are each checked by a headless run in CI or by a script that
+        counts lit pixels in the package's own window.</p>
       </description>
-      <url type="details">https://github.com/dmos42/VoLum/releases/tag/v1.3.1-linux.3</url>
+      <url type="details">https://github.com/dmos42/VoLum/releases/tag/v1.3.1-linux.5</url>
     </release>
   </releases>
 

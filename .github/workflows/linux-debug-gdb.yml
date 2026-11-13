@@ -45,7 +45,7 @@ jobs:
       - name: Build
         run: |
           cmake -S NeuralAmpModeler/linux -B build/linux -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release -DVOLUM_COPY_RIGS=OFF
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo -DVOLUM_COPY_RIGS=OFF
           cmake --build build/linux
         shell: bash
 
@@ -72,8 +72,8 @@ jobs:
             core="$(ls -t /tmp/core.* | head -1)"
             gdb -batch \
               -ex 'set pagination off' \
-              -ex 'thread apply all bt' \
-              build/linux/volum-vst3-probe "$core" 2>&1 | tail -140
+              -ex 'thread apply all bt' -ex 'info threads' \
+              build/linux/volum-vst3-probe "$core" 2>&1 | tail -220
             echo "=== modules ==="
             gdb -batch -ex 'info sharedlibrary' build/linux/volum-vst3-probe "$core" 2>&1 | grep -i volum
           else
