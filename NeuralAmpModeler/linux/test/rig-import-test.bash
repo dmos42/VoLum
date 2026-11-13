@@ -113,10 +113,13 @@ run_probe()
   if ! ldd "$probe" 2>/dev/null | grep -q libasan; then
     pre="stdbuf -o0 -e0"
   fi
+  # VOLUM_PROBE_WRAP lets a debugging session wrap the probe (gdb -batch -ex run
+  # -ex 'thread apply all bt' --args) without touching this script's shape.
+  local wrap="${VOLUM_PROBE_WRAP:-}"
   # shellcheck disable=SC2086
   out="$(xvfb-run -a -s "-screen 0 1440x900x24" \
     env XDG_CONFIG_HOME="$conf" VOLUM_TEST_DUMP="$dump" VOLUM_TEST_BUILDER_NAME="Test Bench" \
-    timeout 120 $pre "$probe" "$module" --ui-only --uiseconds "$uis" --resize 0.5:900x860 $clicks 2>&1)"
+    timeout 120 $pre $wrap "$probe" "$module" --ui-only --uiseconds "$uis" --resize 0.5:900x860 $clicks 2>&1)"
   local code=$?
   if [ $code -ne 0 ]; then
     echo "ECHEC : le probe est sorti avec le code $code"

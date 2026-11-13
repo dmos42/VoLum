@@ -1,0 +1,57 @@
+name: Linux debug
+
+# One-off diagnosis harness, dispatched by hand: the rig-import test's phase 3
+# aborts in the Release build (double free at teardown or after the Save click)
+# and passes under ASan, which is the signature of a timing-dependent bug. This
+# workflow runs the same test with the probe wrapped in gdb, so the abort comes
+# back with a stack of every thread instead of a glibc one-liner.
+
+on:
+  workflow_dispatch:
+
+env:
+  DEBIAN_FRONTEND: noninteractive
+
+jobs:
+  gdb:
+    name: rig import under gdb
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Check out submodules
+        run: bash NeuralAmpModeler/scripts/checkout-submodules.sh
+        shell: bash
+
+      - name: Download the VST3 SDK
+        working-directory: iPlug2/Dependencies/IPlug
+        run: bash download-vst3-sdk.sh
+        shell: bash
+
+      - name: Install build and debug tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ninja-build xvfb libx11-dev libgl1-mesa-dev libglu1-mesa-dev libatomic1 libasound2-dev \
+            libglib2.0-dev dbus dbus-daemon dbus-bin python3-gi gir1.2-glib-2.0 gdb
+        shell: bash
+
+      - name: Build
+        run: |
+          cmake -S NeuralAmpModeler/linux -B build/linux -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DVOLUM_COPY_RIGS=OFF
+          cmake --build build/linux
+        shell: bash
+
+      - name: Run the import test under gdb
+        env:
+          VOLUM_PROBE_WRAP: gdb -batch -ex run -ex 'thread apply all bt' -ex quit --args
+        run: |
+          code=0
+          out="$(NeuralAmpModeler/linux/test/rig-import-test.bash build/linux 2>&1)" || code=$?
+          printf '%s\n' "$out"
+          [ "$code" -eq 0 ] || exit "$code"
+        shell: bash
