@@ -116,8 +116,10 @@ jobs:
         # itself (VOLUM_TEST_DUMP), so the test does not carry pixels that a layout
         # change would stale.
         run: |
-          out="$(NeuralAmpModeler/linux/test/rig-import-test.bash build/linux 2>&1)"
-          code=$?
+          # `|| code=$?` keeps set -e from swallowing the output on a failure: the
+          # print below is what makes the run diagnosable at all.
+          code=0
+          out="$(NeuralAmpModeler/linux/test/rig-import-test.bash build/linux 2>&1)" || code=$?
           printf '%s\n' "$out"
           [ "$code" -eq 0 ] || exit "$code"
           printf '%s\n' "$out" | grep -q 'sans redemarrage' \
@@ -130,8 +132,8 @@ jobs:
         # must not dismiss it, and OK/Yes/No answered through the completion handler.
         # The button rects come from the platform, so no font metric is duplicated.
         run: |
-          out="$(xvfb-run -a build/linux/volum-msgbox-check 2>&1)"
-          code=$?
+          code=0
+          out="$(xvfb-run -a build/linux/volum-msgbox-check 2>&1)" || code=$?
           printf '%s\n' "$out"
           [ "$code" -eq 0 ] || exit "$code"
           printf '%s\n' "$out" | grep -q 'boite de message conforme' \
