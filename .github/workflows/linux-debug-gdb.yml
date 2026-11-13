@@ -1,17 +1,13 @@
 name: Linux debug
 
-# One-off diagnosis harness, repurposed as a soak test: the rig-import test used
-# to abort intermittently in the plain Release build (glibc heap corruption at
-# editor teardown), and never under ASan or gdb. The suspect was two Xlib
-# threads against an uninitialized Xlib; host-support.h now calls XInitThreads
-# at static-init time. This workflow loops the plain test - no gdb, whose
-# scheduling hid the crash - so every push gives the fix a dozen chances to
-# fail. Remove it once the main jobs have stayed green for a while.
+# Soak test, manual: loops the rig-import test a dozen times in a plain Release
+# build. It exists because the editor teardown used to abort intermittently
+# (glibc heap corruption; the idle timer ran into destructed plug-in state, and
+# Xlib had two threads against an uninitialized display) and never under ASan or
+# gdb, whose scheduling hid the crash. Run it from the Actions tab when the
+# teardown code changes again.
 
 on:
-  push:
-    branches:
-      - volum/linux-port
   workflow_dispatch:
 
 env:
