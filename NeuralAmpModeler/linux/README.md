@@ -367,6 +367,19 @@ only two things it adds over `volum-live`:
   echo 'period=512' >> ~/.config/VoLum/app.conf   # 1024 frames of buffer on PipeWire
   ```
 
+The same keys are editable in the window now ([issue #10](https://github.com/dmos42/VoLum/issues/10)):
+the standalone's signal tab has an **Audio & MIDI devices...** button, and the panel it opens
+lists what ALSA announced (`--list` names, no typing), the input with a **none** row, and the
+period presets. A choice is probed first - the device is opened before anything is written -
+and a device that refuses is answered by the in-app message box with nothing saved. What the
+probe accepts is written to `app.conf` atomically (a temp file and one `rename()`, so keys you
+manage by hand, comments included, survive), and the running block loop watches that file:
+the stream is reopened on the spot, on the previous settings if the new ones turn out not to
+open. The panel reads what the device actually negotiated from the environment when it opens,
+so the period row shows the truth, not the wish. A DAW loading the same plug-in never sees
+any of it: the panel and its button exist only when `VOLUM_APP_CONF` is in the environment,
+which only `volum-app` sets.
+
 The block loop, the ALSA negotiation, the editor window and the shutdown order are literally
 `volum-live`'s files — `runHost()` in `live-runner.cpp` — which is the reason both hosts can be
 claimed to behave the same: run the same WAV through each and the two output files are
@@ -380,8 +393,7 @@ printed by default (`--meter N` still asks for them), and closing the window is 
 ```
 
 What it deliberately is not: a DAW. One stereo pair in and out, no timeline, no routing, no
-MIDI in the host yet ([issue #6](https://github.com/dmos42/VoLum/issues/6)), and no settings
-window of its own — the keys above are the settings for now.
+MIDI in the host yet ([issue #6](https://github.com/dmos42/VoLum/issues/6)).
 
 ### One file you can run: the AppImage
 
@@ -578,9 +590,6 @@ Not implemented yet, each with a `TODO(linux)` at the site:
   [issue #6](https://github.com/dmos42/VoLum/issues/6). And in `volum-app` there is no MIDI
   source at all: a DAW hands the plug-in its MIDI, the standalone has nobody to, which is
   [issue #11](https://github.com/dmos42/VoLum/issues/11).
-* `volum-app` has no settings window: the device, the period and the gain are
-  `~/.config/VoLum/app.conf` keys, and `--list` prints the names you then have to type there —
-  [issue #10](https://github.com/dmos42/VoLum/issues/10).
 * The package carries no signature: the AppImage, its `.zsync`, the VST3 zip and
   `SHA256SUMS.txt` are built and published by CI
   ([issue #13](https://github.com/dmos42/VoLum/issues/13)), but nothing proves who made

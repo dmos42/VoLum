@@ -1,5 +1,7 @@
 #include "live-runner.h"
 
+#include <sys/stat.h>
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -19,6 +21,102 @@ namespace
 void onSignal(int)
 {
   requestStop();
+}
+
+/** The audio panel writes app.conf behind the host's back (issue #10); the
+ * file's mtime is the channel back. Polled at most twice a second: a stat()
+ * per block would be a syscall in the loop that paces the audio, for nothing.
+ * Absence is a state too - the panel creates the file on its first write. */
+class ConfWatcher
+{
+public:
+  void Arm(std::string path)
+  {
+    mPath = std::move(path);
+    mLast = StatMtime();
+  }
+
+  /** True once per actual change of the file, false while it stands still. */
+  bool Changed()
+  {
+    if (mPath.empty())
+      return false;
+
+    const long long now = StatMtime();
+
+    if (now == mLast)
+      return false;
+
+    mLast = now;
+    return true;
+  }
+
+private:
+  long long StatMtime() const
+  {
+    struct stat st;
+
+    if (::stat(mPath.c_str(), &st) != 0)
+      return -1;
+
+    return static_cast<long long>(st.st_mtim.tv_sec) * 1000000000ll + st.st_mtim.tv_nsec;
+  }
+
+  std::string mPath;
+  long long mLast = -1;
+};
+
+/** The stream has to be reopened for a device or period change to mean
+ * anything: the block size the plug-in was set up with and the buffers the
+ * card holds are the old ones until this runs. The gap this costs is exactly
+ * what the panel promised in its status line. A device that refuses to open
+ * (the desktop is holding the card) is answered by giving the previous
+ * settings back - the run continues on what was working, and the reason is on
+ * the terminal, where the panel said the verdict would be printed. */
+int ReopenStream(Options& opt, const Options& previous, Loaded& plugin, Session& session, Engine& eng,
+                 WavWriter& writer)
+{
+  const unsigned int oldBlock = session.blockFrames;
+  const unsigned int oldRate = session.rate;
+
+  plugin.processor->setProcessing(0);
+  plugin.component->setActive(0);
+  closeAudio(session);
+
+  std::string err;
+  int rc = openAudio(opt, plugin, session, err);
+
+  if (rc != 0)
+  {
+    fprintf(stderr, "reouverture impossible sur le nouveau reglage : %s\n", err.c_str());
+    fprintf(stderr, "retour aux reglages precedents\n");
+
+    opt = previous; // the run continues on what was working; the options say so too
+    session = Session{};
+    rc = openAudio(opt, plugin, session, err);
+
+    if (rc != 0)
+    {
+      fprintf(stderr, "l'ancien peripherique refuse lui aussi : %s\n", err.c_str());
+      return rc;
+    }
+  }
+
+  eng.setup(plugin, session.blockFrames);
+
+  if (writer.isOpen() && session.rate != oldRate)
+  {
+    writer.close();
+    printf("out-file : ferme, la cadence a change (%u Hz -> %u Hz)\n", oldRate, session.rate);
+  }
+
+  if (session.blockFrames != oldBlock || session.rate != oldRate)
+    printf("reouverture : period negocie %u, cadence %u Hz, tampon %u images\n", session.blockFrames, session.rate,
+           session.play.bufferFrames);
+  else
+    printf("reouverture : period negocie %u, tampon %u images\n", session.blockFrames, session.play.bufferFrames);
+
+  return 0;
 }
 
 } // namespace
@@ -133,32 +231,67 @@ void closeAudio(Session& session)
 }
 
 int runRealtime(const Options& opt, Session& session, Engine& eng, EditorSession& editor, bool hasEditor,
-                WavWriter& writer)
+                WavWriter& writer, Loaded& plugin)
 {
   Stream& cap = session.cap;
   Stream& play = session.play;
   FileSource file{session.fromFile ? &session.fileIn : nullptr, session.fileChannels, 0};
-  const unsigned int frames = eng.blockFrames;
   const auto start = std::chrono::steady_clock::now();
   auto nextMeter = start + std::chrono::duration<double>(opt.meterEvery);
   const auto deadline =
     opt.seconds > 0 ? start + std::chrono::duration<double>(opt.seconds) : std::chrono::steady_clock::time_point::max();
   int status = 0;
-  // --in is optional: without it the plug-in is fed silence, which is enough to
-  // hear what an amp model does to a preset and to test the output path alone.
-  const bool haveCapture = cap.pcm != nullptr;
 
-  while (!stopRequested() && std::chrono::steady_clock::now() < deadline)
+  // The audio panel (issue #10) writes app.conf behind the host's back; the
+  // watcher is the host's half of that conversation. A run fed from a file has
+  // no device to reopen, and an offline run has no live settings to change.
+  Options live = opt;
+  ConfWatcher conf;
+  ConfSnapshot seen;
+  seen.out = live.outDevice;
+  seen.in = live.inDevice;
+  seen.period = live.period;
+  seen.periods = live.periods;
+  seen.noIn = live.noIn;
+  const bool watchConf = !session.offline && !session.fromFile && !live.configFile.empty();
+
+  if (watchConf)
+    conf.Arm(live.configFile);
+
+  auto pollConf = [&]() {
+    if (!watchConf || !conf.Changed())
+      return;
+
+    Options previous = live;
+    std::string err;
+
+    if (!ApplyConfChanges(live.configFile, live, seen, err))
+    {
+      fprintf(stderr, "reglages relus mais inutilisables : %s\n", err.c_str());
+      return;
+    }
+
+    printf("reglage audio change dans %s : reouverture du flux\n", live.configFile.c_str());
+
+    if (ReopenStream(live, previous, plugin, session, eng, writer) != 0)
+      status = 4;
+  };
+
+  while (!stopRequested() && status == 0 && std::chrono::steady_clock::now() < deadline)
   {
+    pollConf();
+
+    const unsigned int frames = eng.blockFrames;
+
     if (file)
     {
-      if (!fillFromFile(file, frames, eng.inPtr, opt.gain))
+      if (!fillFromFile(file, frames, eng.inPtr, live.gain))
       {
         printf("fin du fichier d'entree : arret\n");
         break;
       }
     }
-    else if (haveCapture)
+    else if (cap.pcm != nullptr) // re-read each pass: a reopen can add or drop capture
     {
       const snd_pcm_sframes_t got = readFrames(cap, cap.raw.data(), frames);
 
@@ -172,7 +305,7 @@ int runRealtime(const Options& opt, Session& session, Engine& eng, EditorSession
       if (stopRequested())
         break;
 
-      fillFromDevice(cap, frames, eng.inPtr, opt.gain);
+      fillFromDevice(cap, frames, eng.inPtr, live.gain);
     }
     else
       std::fill(eng.inStore.begin(), eng.inStore.end(), 0.f);
@@ -205,11 +338,11 @@ int runRealtime(const Options& opt, Session& session, Engine& eng, EditorSession
       }
     }
 
-    if (opt.meterEvery > 0 && std::chrono::steady_clock::now() >= nextMeter)
+    if (live.meterEvery > 0 && std::chrono::steady_clock::now() >= nextMeter)
     {
       reportLevels(eng, std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count());
       resetLevels(eng);
-      nextMeter += std::chrono::duration<double>(opt.meterEvery);
+      nextMeter += std::chrono::duration<double>(live.meterEvery);
     }
   }
 
@@ -365,6 +498,16 @@ int runHost(const Options& opt, const char* windowTitle, const char* toolName)
     return 0;
   }
 
+  // The audio panel (issue #10) reads the negotiated truth from the environment
+  // when it opens: what the device actually agreed to, not what was asked for.
+  // A DAW host never sets VOLUM_APP_CONF, so these names mean nothing there.
+  if (const char* marker = getenv("VOLUM_APP_CONF"); marker && *marker)
+  {
+    setenv("VOLUM_APP_RATE", std::to_string(session.rate).c_str(), 1);
+    setenv("VOLUM_APP_BLOCK", std::to_string(session.blockFrames).c_str(), 1);
+    setenv("VOLUM_APP_BUFFER", std::to_string(session.play.bufferFrames).c_str(), 1);
+  }
+
   Engine eng;
   eng.setup(plugin, session.blockFrames);
 
@@ -393,7 +536,7 @@ int runHost(const Options& opt, const char* windowTitle, const char* toolName)
   }
 
   const int status = session.offline ? runOffline(opt, session, eng, writer, editor, hasEditor)
-                                     : runRealtime(opt, session, eng, editor, hasEditor, writer);
+                                     : runRealtime(opt, session, eng, editor, hasEditor, writer, plugin);
 
   if (status)
     exitCode = status;

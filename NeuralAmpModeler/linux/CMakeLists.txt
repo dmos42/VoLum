@@ -516,6 +516,69 @@ if(VOLUM_BUILD_MSGBOX_CHECK)
 endif()
 
 # ---------------------------------------------------------------------------
+# volum-panel-check drives the audio settings panel the standalone's plug-in
+# draws (issue #10): its own editor window, a panel fed a made-up model (fake
+# devices, a throwaway app.conf, an injected probe), and synthetic clicks on
+# the real rows. The row rects come from the panel itself, so the test carries
+# no font metrics of its own. The conf writer and the host's read-back of a
+# rewritten file are checked without a window at all.
+# ---------------------------------------------------------------------------
+
+option(VOLUM_BUILD_PANEL_CHECK "Build volum-panel-check, the headless audio-panel check" ON)
+
+if(VOLUM_BUILD_PANEL_CHECK)
+  add_executable(volum-panel-check
+    "${CMAKE_CURRENT_LIST_DIR}/tools/panel-check.cpp"
+    # The conf read-back the host answers the panel with: plain C++, no ALSA,
+    # no VST3 - the same file the hosts build from.
+    "${CMAKE_CURRENT_LIST_DIR}/tools/options-support.cpp"
+    "${IPLUG2_ROOT}/IPlug/IPlugParameter.cpp"
+    "${IPLUG2_ROOT}/IPlug/IPlugPaths.cpp"
+    "${IPLUG2_ROOT}/IPlug/IPlugTimer.cpp"
+    ${IGRAPHICS_SOURCES}
+  )
+
+  target_include_directories(volum-panel-check PRIVATE
+    "${PROJECT_DIR}"
+    "${IPLUG2_ROOT}/IPlug"
+    "${IPLUG2_ROOT}/IPlug/Extras"
+    "${IPLUG2_ROOT}/IGraphics"
+    "${IPLUG2_ROOT}/IGraphics/Controls"
+    "${IPLUG2_ROOT}/IGraphics/Drawing"
+    "${IPLUG2_ROOT}/IGraphics/Platforms"
+    "${CMAKE_CURRENT_LIST_DIR}/tools"
+    "${IPLUG2_ROOT}/WDL"
+    "${DEPS_PATH}/IGraphics/NanoVG/src"
+    "${DEPS_PATH}/IGraphics/NanoSVG/src"
+    "${DEPS_PATH}/IGraphics/STB"
+  )
+  target_compile_definitions(volum-panel-check PRIVATE
+    IGRAPHICS_NANOVG
+    IGRAPHICS_GL2
+    RELEASE $<$<NOT:$<CONFIG:Debug>>:NDEBUG>
+  )
+  target_compile_options(volum-panel-check PRIVATE
+    $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CXX_COMPILER_ID:GNU,Clang>>:-include;cstdlib;-Wno-deprecated-declarations>
+  )
+  target_link_libraries(volum-panel-check PRIVATE
+    OpenGL::GL
+    X11::X11
+    Threads::Threads
+    ${CMAKE_DL_LIBS}
+    ${VOLUM_LIBATOMIC}
+  )
+
+  if(VOLUM_GIO_FOUND)
+    target_compile_definitions(volum-panel-check PRIVATE VOLUM_HAVE_PORTAL=1)
+    target_sources(volum-panel-check PRIVATE "${IPLUG2_ROOT}/IGraphics/Platforms/IGraphicsLinuxPortal.cpp")
+    target_link_libraries(volum-panel-check PRIVATE PkgConfig::VOLUM_GIO)
+  endif()
+
+  set_target_properties(volum-panel-check PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+endif()
+
+# ---------------------------------------------------------------------------
 # What a user gets from `cmake --install build/linux`: the VST3 bundle where the
 # hosts look (VOLUM_INSTALL_DIR, ~/.vst3 by default), and the standalone where a
 # desktop looks - bin/, share/applications/, share/icons/hicolor/. These rules sit

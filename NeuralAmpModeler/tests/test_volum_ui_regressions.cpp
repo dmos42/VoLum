@@ -3700,6 +3700,70 @@ TEST_CASE("tier2h host undo refreshes the unsaved flag and Enter confirms off th
   RequireDoesNotContain(pickBody, "if (volum::content::DefaultCaptureSelection(amp, s, c))");
 }
 
+TEST_CASE("tier2j the standalone gets an audio settings panel that rewrites app.conf")
+{
+  // Issue #10: the standalone had no settings window of its own - the keys in
+  // app.conf were the settings, documented but out of reach. The panel is a
+  // Linux-only IControl in the plug-in, shown only when the standalone marker
+  // is in the environment, so a DAW loading the same module never sees it.
+  const std::string panel = ReadText(RepoRoot() / "NeuralAmpModeler" / "VoLumLinuxAudioPanel.h");
+  RequireContains(panel, "RunningUnderLinuxStandalone()");
+  RequireContains(panel, "std::getenv(\"VOLUM_APP_CONF\")");
+  // The write is atomic: a temp file next to the target, then one rename(), so
+  // a reader never observes a half-written conf.
+  RequireContains(panel, "std::filesystem::rename(temp, target, ec)");
+  // ALSA is dlopen()ed, never linked: a DAW host loading the module must not
+  // gain a libasound dependency because the standalone panel exists.
+  RequireContains(panel, "dlopen(\"libasound.so.2\", RTLD_LAZY)");
+  RequireContains(panel, "snd_device_name_hint");
+  // A device that refuses to open is answered in-app (issue #2's box), and
+  // nothing is written until the probe says yes.
+  RequireContains(panel, "AlsaProbeDevice");
+  RequireContains(panel, "ShowMessageBox");
+  // "none" on the input is a key of its own: an empty in= line would break
+  // the conf reader, so the panel writes no-in= and drops the in= line.
+  RequireContains(panel, "RemoveAppConfKey");
+
+  const std::string pluginHeader = ReadText(RepoRoot() / "NeuralAmpModeler" / "NeuralAmpModeler.h");
+  RequireContains(pluginHeader, "_VolumShowLinuxAudioPanel");
+  RequireContains(pluginHeader, "_VolumHideLinuxAudioPanel");
+  RequireContains(pluginHeader, "mVolumLinuxAudioPanel");
+
+  const std::string plugin = ReadPluginSource();
+  // The settings tab button routes to the panel through the APP_API hook that
+  // was a Windows-only no-op before.
+  RequireContains(plugin, "#elif defined(__linux__)\n  _VolumShowLinuxAudioPanel();");
+  RequireContains(plugin, "void NeuralAmpModeler::_VolumShowLinuxAudioPanel()");
+  RequireContains(plugin, "void NeuralAmpModeler::_VolumHideLinuxAudioPanel()");
+
+  const std::string controls = ReadText(RepoRoot() / "NeuralAmpModeler" / "NeuralAmpModelerControls.h");
+  RequireContains(controls, "volumlinuxaudio::RunningUnderLinuxStandalone()");
+  RequireContains(controls, "Audio & MIDI devices...");
+
+  // The host half: volum-app hands the negotiated truth to the panel through
+  // the environment, and the block loop watches the conf file and reopens the
+  // stream when the panel writes it - falling back to the previous settings
+  // when the new device refuses.
+  const std::string app = ReadText(RepoRoot() / "NeuralAmpModeler" / "linux" / "tools" / "volum-app.cpp");
+  RequireContains(app, "setenv(\"VOLUM_APP_CONF\"");
+
+  const std::string options = ReadText(RepoRoot() / "NeuralAmpModeler" / "linux" / "tools" / "options-support.cpp");
+  RequireContains(options, "void NormalizeOptions(Options& opt)");
+  RequireContains(options, "bool ApplyConfChanges(const std::string& path, Options& opt, ConfSnapshot& seen, std::string& err)");
+
+  const std::string runner = ReadText(RepoRoot() / "NeuralAmpModeler" / "linux" / "tools" / "live-runner.cpp");
+  RequireContains(runner, "class ConfWatcher");
+  RequireContains(runner, "int ReopenStream(Options& opt, const Options& previous, Loaded& plugin, Session& session, Engine& eng,");
+  RequireContains(runner, "pollConf()");
+
+  const std::string cmake = ReadText(RepoRoot() / "NeuralAmpModeler" / "linux" / "CMakeLists.txt");
+  RequireContains(cmake, "volum-panel-check");
+
+  const std::string workflow = ReadText(RepoRoot() / ".github" / "workflows" / "linux-vst3.yml");
+  RequireContains(workflow, "volum-panel-check");
+  RequireContains(workflow, "panneau audio conforme");
+}
+
 TEST_CASE("tier2i the Linux platform draws its own message box instead of answering in silence")
 {
   const std::string linux = ReadText(RepoRoot() / "iPlug2" / "IGraphics" / "Platforms" / "IGraphicsLinux.cpp");
@@ -3917,6 +3981,8 @@ const std::vector<DblRow>& DoubleClickDecisions()
     {"VoLumHero.h", "VoLumHeroImageControl", DblDecision::Repeats},
     {"VoLumHero.h", "VoLumSupportPolarityControl", DblDecision::Repeats},
     {"VoLumKeyboardNav.h", "VoLumChannelStepControl", DblDecision::Repeats},
+    // The panel's rows and choices carry no parameter: a second press is a no-op.
+    {"VoLumLinuxAudioPanel.h", "VoLumLinuxAudioPanelControl", DblDecision::Drops},
     {"VoLumListMenu.h", "VoLumListMenuControl", DblDecision::Drops},
     {"VoLumMidiFootswitch.h", "VoLumMidiFootswitchControl", DblDecision::OwnDblClick},
     {"VoLumNameDialog.h", "VoLumNameDialogControl", DblDecision::OwnDblClickGated},

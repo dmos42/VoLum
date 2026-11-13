@@ -84,9 +84,12 @@ int openAudio(const Options& opt, Loaded& plugin, Session& session, std::string&
 void closeAudio(Session& session);
 
 /** Returns the process exit code: 0 fine, 4 the device failed, 5 the plug-in
- * refused the setup, 6 the output stayed silent. Stops on stopRequested(). */
+ * refused the setup, 6 the output stayed silent. Stops on stopRequested(). The
+ * plug-in is handed in because the audio panel (issue #10) reopens the stream
+ * mid-run, and reopening means putting it back to sleep and setting it up
+ * again at whatever the new device agreed to. */
 int runRealtime(const Options& opt, Session& session, Engine& eng, EditorSession& editor, bool hasEditor,
-                WavWriter& writer);
+                WavWriter& writer, Loaded& plugin);
 int runOffline(const Options& opt, Session& session, Engine& eng, WavWriter& writer, EditorSession& editor,
                bool hasEditor);
 

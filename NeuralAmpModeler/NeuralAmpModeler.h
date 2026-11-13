@@ -58,6 +58,15 @@
 #include "VoLumDspStagingWdl.h"
 #include "VoLumContentStore.h" // 1.2.0 custom-content backend (F5-F8) + kDirectSlot
 #include "VoLumUpgradeMigration.h"
+#if defined(__linux__)
+// The Linux standalone's audio settings panel (issue #10). Forward-declared only:
+// the control is attached at runtime, and the header pulls in IGraphics, which the
+// plug-in's own header must not order around.
+namespace volumlinuxaudio
+{
+class VoLumLinuxAudioPanelControl;
+}
+#endif
 #include "VoLumUpdateCheck.h"
 #include "VoLumUpdateState.h"
 #include "VoLumPlayModel.h"
@@ -308,6 +317,15 @@ public:
   void _VolumCheckForUpdatesNow();
   // Standalone: opens the app host's audio and MIDI Preferences. No-op in a plugin.
   void _VolumOpenAudioPreferences();
+#if defined(__linux__)
+  // The Linux standalone has no app host to ask (issue #10): the panel is drawn
+  // by this plug-in's own IGraphics, over everything, and reads/writes the
+  // standalone's app.conf through the contract volum-app set up in the
+  // environment. A DAW never sees it: no VOLUM_APP_CONF, no panel.
+  void _VolumShowLinuxAudioPanel();
+  void _VolumHideLinuxAudioPanel();
+  volumlinuxaudio::VoLumLinuxAudioPanelControl* mVolumLinuxAudioPanel = nullptr;
+#endif
   void _VolumSetAutoUpdateCheck(bool enabled);
   void _VolumUseAvailableUpdate();
   void _VolumSaveEffectSettings();

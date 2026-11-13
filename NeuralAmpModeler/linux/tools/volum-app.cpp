@@ -111,6 +111,19 @@ int main(int argc, char** argv)
   if (!parseArgs(argc, argv, opt, printUsage, "app.conf"))
     return 2;
 
+  // The audio settings panel (issue #10) reads these instead of guessing: the
+  // file it writes, and the values the stream was opened with. Set before the
+  // module is loaded, so the editor's first layout already sees the marker and
+  // offers the button; runHost adds the negotiated ones (rate, block) once the
+  // device has answered. VOLUM_APP_CONF doubles as the standalone marker - a DAW
+  // never sets it, so the panel only exists here.
+  setenv("VOLUM_APP_CONF", opt.configFile.c_str(), 1);
+  setenv("VOLUM_APP_OUT", opt.outDevice.c_str(), 1);
+  setenv("VOLUM_APP_IN", opt.noIn ? "" : opt.inDevice.c_str(), 1);
+  setenv("VOLUM_APP_PERIOD", std::to_string(opt.period).c_str(), 1);
+  setenv("VOLUM_APP_PERIODS", std::to_string(opt.periods).c_str(), 1);
+  setenv("VOLUM_APP_GAIN", std::to_string(opt.gain).c_str(), 1);
+
   if (opt.module.empty() || !std::filesystem::is_regular_file(opt.module))
   {
     fprintf(stderr, "paquet VoLum.vst3 introuvable : \"%s\"\n", opt.module.c_str());

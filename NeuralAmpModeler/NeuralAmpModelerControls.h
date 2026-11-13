@@ -15,6 +15,9 @@
 #include "VoLumMeterDirty.h"
 #include "VoLumOutputMode.h"
 #include "VoLumSecondPress.h"
+#if defined(__linux__)
+#include "VoLumLinuxAudioPanel.h" // the standalone's audio panel (issue #10)
+#endif
 
 #define PLUG() static_cast<PLUG_CLASS_NAME*>(GetDelegate())
 #define NAM_KNOB_HEIGHT 120.0f
@@ -1267,10 +1270,16 @@ public:
     const IRECT cardsRow = rest.ReduceFromTop(196.f);
     (void)rest.ReduceFromTop(18.f);
 #if defined(APP_API)
-    const IRECT audioRow = rest.ReduceFromTop(volum::packui::kPackRowBtnH);
+    const bool standaloneAudioRow = true;
+#elif defined(__linux__)
+    // The Linux standalone marks the process before the module is loaded; under
+    // that marker the row below is a real button into the audio panel (issue #10),
+    // not the hint a DAW gets. Read once per layout, which is once per editor.
+    const bool standaloneAudioRow = volumlinuxaudio::RunningUnderLinuxStandalone();
 #else
-    const IRECT audioRow = rest.ReduceFromTop(16.f);
+    const bool standaloneAudioRow = false;
 #endif
+    const IRECT audioRow = rest.ReduceFromTop(standaloneAudioRow ? volum::packui::kPackRowBtnH : 16.f);
 
     const float gap = 14.f;
     const float cardW = (cardsRow.W() - 2.f * gap) / 3.f;
@@ -1354,20 +1363,24 @@ public:
                                             mControlNames.animateArt));
     }
 
-#if defined(APP_API)
-    // The Windows standalone has no menu bar, so this button is how Preferences opens.
-    auto* audioDevices = new VoLumSettingsActionButtonControl(
-      audioRow.GetCentredInside(220.f, audioRow.H()), "Audio & MIDI devices...", [this]() {
-        if (auto* plugin = static_cast<PLUG_CLASS_NAME*>(GetDelegate()))
-          plugin->_VolumOpenAudioPreferences();
-      });
-    audioDevices->SetTooltip("Audio driver, input and output devices, sample rate, buffer size and MIDI input port");
-    _Reg(kTabSignal, AddNamedChildControl(audioDevices, mControlNames.audioDevices));
-#else
-    const char* audioHintStr = "Audio device / sample rate / buffer: use your host's audio settings";
-    _Reg(kTabSignal,
-         AddNamedChildControl(new IVLabelControl(audioRow, audioHintStr, _HintStyle()), mControlNames.audioHint));
-#endif
+    // The Windows standalone has no menu bar, so this button is how Preferences
+    // opens; the Linux standalone gets the same button, into the in-app panel.
+    if (standaloneAudioRow)
+    {
+      auto* audioDevices = new VoLumSettingsActionButtonControl(
+        audioRow.GetCentredInside(220.f, audioRow.H()), "Audio & MIDI devices...", [this]() {
+          if (auto* plugin = static_cast<PLUG_CLASS_NAME*>(GetDelegate()))
+            plugin->_VolumOpenAudioPreferences();
+        });
+      audioDevices->SetTooltip("Audio driver, input and output devices, sample rate, buffer size and MIDI input port");
+      _Reg(kTabSignal, AddNamedChildControl(audioDevices, mControlNames.audioDevices));
+    }
+    else
+    {
+      const char* audioHintStr = "Audio device / sample rate / buffer: use your host's audio settings";
+      _Reg(kTabSignal,
+           AddNamedChildControl(new IVLabelControl(audioRow, audioHintStr, _HintStyle()), mControlNames.audioHint));
+    }
   }
 
   // ---- MIDI: which channel, which recall CC, and what each program number plays

@@ -113,6 +113,29 @@ jobs:
             || { echo "le check n'a rien verifie : il lui faut un serveur X"; exit 1; }
         shell: bash
 
+      - name: Check the standalone's audio settings panel
+        # The panel the standalone draws over its own editor (issue #10): rows for the
+        # output, the input and the period, choices written to app.conf atomically, a
+        # device that refuses to open answered in-app with nothing written. The same run
+        # then hands a conf in the panel's own shape (including the no-in key) to
+        # volum-app --check: what the panel writes is exactly what the host re-reads.
+        run: |
+          out="$(xvfb-run -a build/linux/volum-panel-check 2>&1)"
+          code=$?
+          printf '%s\n' "$out"
+          [ "$code" -eq 0 ] || exit "$code"
+          printf '%s\n' "$out" | grep -q 'panneau audio conforme' \
+            || { echo "le check n'a rien verifie : il lui faut un serveur X"; exit 1; }
+          conf="$(mktemp -d)/app.conf"
+          printf 'out=null\nno-in=\nperiod=128\n' > "$conf"
+          out="$(build/linux/volum-app --no-ui --check --config "$conf" 2>&1)"
+          code=$?
+          printf '%s\n' "$out"
+          [ "$code" -eq 0 ] || exit "$code"
+          printf '%s\n' "$out" | grep -q 'tout est negocie' \
+            || { echo "volum-app n'a pas accepte le conf ecrit par le panneau"; exit 1; }
+        shell: bash
+
       - name: Stage a system installation
         # What an RPM, a tarball and an AppImage are all built on: the same install
         # rules, staged into a build root. Checked here rather than at release time,

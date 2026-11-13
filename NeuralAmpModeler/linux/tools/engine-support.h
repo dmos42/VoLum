@@ -54,6 +54,12 @@ struct Engine
     inStore.assign(size_t(l.inChannels) * frames, 0.f);
     outStore.assign(size_t(l.outChannels) * frames, 0.f);
 
+    // Re-setup is a real path now: the audio panel reopens the stream mid-run
+    // (issue #10), and a second setup that pushed onto these would leave the
+    // first setup's pointers in front of the real ones.
+    inPtr.clear();
+    outPtr.clear();
+
     for (int c = 0; c < l.inChannels; ++c)
       inPtr.push_back(inStore.data() + size_t(c) * frames);
 

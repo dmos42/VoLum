@@ -57,6 +57,30 @@ bool keyWantsValue(const std::string& key);
 bool applyOption(const std::string& key, const char* value, Options& opt, std::string& err);
 bool loadConfigFile(const std::string& path, Options& opt, std::string& err);
 
+/** The defaults a half-filled Options still needs: capture falls back to the
+ * playback device, the period and the period count get their working values.
+ * parseArgs ends on this; the host's read-back of a rewritten config file ends
+ * on it too, because the panel writes single keys and the rest of the file may
+ * say nothing at all. */
+void NormalizeOptions(Options& opt);
+
+/** The four keys the audio panel (issue #10) manages, as the config file last
+ * said them - the snapshot a change is diffed against. */
+struct ConfSnapshot
+{
+  std::string out, in;
+  unsigned int period = 0;
+  unsigned int periods = 0;
+  bool noIn = false;
+};
+
+/** Re-read the config file and apply onto opt only the keys that changed since
+ * the snapshot was taken. The panel writes the file behind the host's back;
+ * this is the half of that conversation the host answers. Returns false when
+ * the file could not be read (err says why); a readable file with no change
+ * returns true and touches nothing. */
+bool ApplyConfChanges(const std::string& path, Options& opt, ConfSnapshot& seen, std::string& err);
+
 /** Config file first, then the command line, then the defaults. printUsage and
  * defaultConfigName (the file under ~/.config/VoLum) are the tool's own. */
 bool parseArgs(int argc, char** argv, Options& opt, void (*printUsage)(const char*), const char* defaultConfigName);

@@ -272,6 +272,12 @@ bool parseArgs(int argc, char** argv, Options& opt, void (*printUsage)(const cha
       opt.module = "~/.vst3/VoLum.vst3/Contents/x86_64-linux/VoLum.vst3.so";
   }
 
+  NormalizeOptions(opt);
+  return true;
+}
+
+void NormalizeOptions(Options& opt)
+{
   // Capture comes from the same device as playback unless --in said otherwise; --no-in
   // asks for no capture at all, and the plug-in is then fed silence or a WAV.
   if (opt.noIn)
@@ -283,6 +289,61 @@ bool parseArgs(int argc, char** argv, Options& opt, void (*printUsage)(const cha
     opt.period = 256; // see Options::period: 64 crackles over a sound server
   if (opt.periods == 0)
     opt.periods = 2;
+}
+
+// MARK: config changes read back from behind the host's back
+
+bool ApplyConfChanges(const std::string& path, Options& opt, ConfSnapshot& seen, std::string& err)
+{
+  Options fresh;
+
+  if (!loadConfigFile(path, fresh, err))
+    return false;
+
+  NormalizeOptions(fresh);
+
+  // Only what changed since the snapshot is applied: a key the command line won
+  // at startup must not silently lose just because the panel rewrote the file
+  // around it - and a value the panel wrote that matches what is already
+  // running costs no reopen at all.
+  if (fresh.outDevice != seen.out)
+  {
+    if (!applyOption("out", fresh.outDevice.c_str(), opt, err))
+      return false;
+
+    seen.out = fresh.outDevice;
+  }
+
+  if (fresh.noIn != seen.noIn || fresh.inDevice != seen.in)
+  {
+    opt.noIn = fresh.noIn;
+
+    if (!applyOption("in", fresh.inDevice.c_str(), opt, err))
+      return false;
+
+    seen.in = fresh.inDevice;
+    seen.noIn = fresh.noIn;
+  }
+
+  if (fresh.period != seen.period)
+  {
+    const std::string value = std::to_string(fresh.period);
+
+    if (!applyOption("period", value.c_str(), opt, err))
+      return false;
+
+    seen.period = fresh.period;
+  }
+
+  if (fresh.periods != seen.periods)
+  {
+    const std::string value = std::to_string(fresh.periods);
+
+    if (!applyOption("periods", value.c_str(), opt, err))
+      return false;
+
+    seen.periods = fresh.periods;
+  }
 
   return true;
 }

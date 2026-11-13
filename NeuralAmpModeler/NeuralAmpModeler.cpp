@@ -27,6 +27,11 @@
   #include "IPlugAPP_host.h"
   #include "resource.h" // ID_PREFERENCES: Settings opens the app host's Preferences dialog
 #endif
+#if defined(__linux__)
+  // The Linux standalone's audio settings panel (issue #10), drawn by this
+  // plug-in's own IGraphics when volum-app marks the process.
+  #include "VoLumLinuxAudioPanel.h"
+#endif
 
 #include "NeuralAmpModelerControls.h"
 #include "VoLumAmpeteCatalog.h"
@@ -1581,6 +1586,10 @@ void NeuralAmpModeler::OnUIClose()
     _VolumSaveCalibrationDefaults(volum::kMachineSettingsFinalLockMs);
   }
   VolumDebounceFor(this).calibration.markWritten(VolumWriteNowMs());
+#if defined(__linux__)
+  // The panel control dies with the IGraphics; forget it while it is only a pointer.
+  _VolumHideLinuxAudioPanel();
+#endif
 }
 
 void NeuralAmpModeler::_VolumApplyPendingDualAmpChange()
@@ -2902,8 +2911,45 @@ void NeuralAmpModeler::_VolumOpenAudioPreferences()
     ui->ReleaseMouseCapture();
   if (gHWND)
     PostMessage(gHWND, WM_COMMAND, ID_PREFERENCES, 0);
+#elif defined(__linux__)
+  _VolumShowLinuxAudioPanel();
 #endif
 }
+
+#if defined(__linux__)
+// Attached last, shown over everything, the way the platform's message box is.
+// The model comes from the environment volum-app set up; a DAW process has no
+// VOLUM_APP_CONF, and this method is only reachable from the button that only
+// exists under the same marker, so the normal path here is "nothing to show".
+void NeuralAmpModeler::_VolumShowLinuxAudioPanel()
+{
+  auto* ui = GetUI();
+
+  if (!ui)
+    return;
+
+  volumlinuxaudio::AudioPanelModel model;
+
+  if (!volumlinuxaudio::ReadPanelModelFromEnv(model))
+    return;
+
+  if (!mVolumLinuxAudioPanel)
+  {
+    mVolumLinuxAudioPanel = new volumlinuxaudio::VoLumLinuxAudioPanelControl();
+    ui->AttachControl(mVolumLinuxAudioPanel);
+  }
+
+  mVolumLinuxAudioPanel->Show(model, ui->GetBounds());
+  ui->SetAllControlsDirty();
+}
+
+// The IGraphics owns (and destroys) the attached control; only the dangling
+// pointer is ours to clear, in OnUIClose before the editor goes away.
+void NeuralAmpModeler::_VolumHideLinuxAudioPanel()
+{
+  mVolumLinuxAudioPanel = nullptr;
+}
+#endif
 
 void NeuralAmpModeler::_UpdateMeters(sample** inputPointer, sample** outputPointer, const size_t nFrames,
                                      const size_t nChansIn, const size_t nChansOut)
