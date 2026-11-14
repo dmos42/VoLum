@@ -50,6 +50,12 @@ bool readWav(const std::string& path, std::vector<float>& data, int& channels, u
       channels = all[p + 10] | (all[p + 11] << 8);
       rate = all[p + 12] | (all[p + 13] << 8) | (all[p + 14] << 16) | (all[p + 15] << 24);
       bits = all[p + 22] | (all[p + 23] << 8);
+
+      // WAVE_FORMAT_EXTENSIBLE (0xFFFE) carries the real tag in the first two bytes
+      // of the SubFormat GUID at offset 24 of the extension: 1 = PCM, 3 = IEEE float.
+      // Missing it sent float32 files down the int32 path.
+      if (fmtTag == 0xFFFE && chunkSize >= 40 && p + 8 + 40 <= all.size())
+        fmtTag = all[p + 8 + 24] | (all[p + 8 + 25] << 8);
     }
 
     if (isData)
