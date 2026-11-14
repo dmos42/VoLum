@@ -23,6 +23,17 @@ bool keyWantsValue(const std::string& key)
   return false;
 }
 
+/** A value may be negative (--gain -3): a leading '-' is only a flag when another
+ *  option follows, not a digit or a dot. */
+bool looksLikeFlag(const char* s)
+{
+  if (s[0] != '-')
+    return false;
+
+  const char c = s[1];
+  return c == '\0' || !(std::isdigit(static_cast<unsigned char>(c)) || c == '.');
+}
+
 bool applyOption(const std::string& key, const char* value, Options& opt, std::string& err)
 {
   auto wantNumber = [&](double& out) {
@@ -257,7 +268,7 @@ bool parseArgs(int argc, char** argv, Options& opt, void (*printUsage)(const cha
       value = argv[i] + 2 + eq + 1; // --opt=value
       key.erase(eq);
     }
-    else if (keyWantsValue(key) && i + 1 < argc && argv[i + 1][0] != '-')
+    else if (keyWantsValue(key) && i + 1 < argc && !looksLikeFlag(argv[i + 1]))
     {
       value = argv[++i]; // --opt value
     }

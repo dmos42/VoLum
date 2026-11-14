@@ -344,6 +344,61 @@ jobs:
           printf '%s\n' "$out" | grep -q 'capture indisponible' || { echo 'le repli silence n a pas ete annonce'; exit 1; }
         shell: bash
 
+      - name: A float32 extensible WAV decodes as float
+        # The reader took its float path only on fmt tag 3; WAVE_FORMAT_EXTENSIBLE
+        # (0xFFFE, what ffmpeg and most Windows tools emit for float32) fell through
+        # to the int32 path and came out saturated (issue #25). The same tone is
+        # written twice - plain float and extensible float - and the established
+        # audio of both runs must be byte-identical, the same claim the two-host
+        # step above makes.
+        run: |
+          python3 - <<'PY'
+          import math, struct
+          rate = 48000
+          samples = [0.25 * math.sin(2 * math.pi * 220 * i / rate) for i in range(2 * rate)]
+          def wav(path, tag, ext):
+              data = b''.join(struct.pack('<ff', v, v) for v in samples)
+              fmt = struct.pack('<HHIIHH', tag, 2, rate, rate * 8, 8, 32)
+              if ext:
+                  fmt += struct.pack('<HHI', 22, 32, 3) \
+                       + b'\x03\x00\x00\x00\x00\x00\x10\x00\x80\x00\x00\xaa\x00\x38\x9b\x71'
+              body = b'fmt ' + struct.pack('<I', len(fmt)) + fmt \
+                   + b'data' + struct.pack('<I', len(data)) + data
+              with open(path, 'wb') as f:
+                  f.write(b'RIFF' + struct.pack('<I', 4 + len(body)) + b'WAVE' + body)
+          wav('/tmp/ci-float.wav', 3, False)
+          wav('/tmp/ci-float-ext.wav', 0xFFFE, True)
+          PY
+          for src in ci-float ci-float-ext; do
+            ./build/linux/volum-live \
+              build/linux/VoLum.vst3/Contents/x86_64-linux/VoLum.vst3.so \
+              --in-file "/tmp/$src.wav" --out-file "/tmp/$src-out.wav" --meter 0 --no-ui || exit $?
+          done
+          python3 - <<'PY'
+          a = open('/tmp/ci-float-out.wav', 'rb').read()
+          b = open('/tmp/ci-float-ext-out.wav', 'rb').read()
+          assert len(a) == len(b), "les deux lectures n'ecrivent pas la meme longueur"
+          start = 44 + 24000 * 4
+          assert a[start:] == b[start:], "le WAV extensible n'est pas lu comme du float"
+          print("fmt 3 et WAVE_FORMAT_EXTENSIBLE lisent pareil")
+          PY
+        shell: bash
+
+      - name: Negative option values parse
+        # Any next argument starting with '-' used to be read as a flag, so
+        # "--gain -3" failed as a missing value (issue #24). --check exits after
+        # the negotiation, so this needs no display and no device.
+        run: |
+          code=0
+          out="$(./build/linux/volum-app --check --no-ui --out null --no-in --gain -3 2>&1)" || code=$?
+          printf '%s\n' "$out"
+          [ "$code" -eq 0 ] || { echo "--gain -3 refuse (code $code)"; exit 1; }
+          if printf '%s\n' "$out" | grep -q 'attend une valeur'; then
+            echo 'la valeur negative est toujours lue comme un drapeau'
+            exit 1
+          fi
+        shell: bash
+
       - name: Open the standalone window
         # Closing this window is how the program is meant to end, so the run is left without
         # --no-ui under Xvfb and the host has to report the plug-in's window as embedded.
