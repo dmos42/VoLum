@@ -1,19 +1,20 @@
-<!-- Le texte de cette page (https://github.com/dmos42/VoLum/releases/tag/v1.3.1-linux.6) .
+<!-- Le texte de cette page (https://github.com/dmos42/VoLum/releases/tag/v1.3.1-linux.7) .
      Le job `Linux AppImage` (.github/workflows/linux-appimage.yml) cree la page a partir de
      ce fichier quand un tag `v*-linux*` n'a pas encore de release, puis y depose les fichiers
      qu'il vient de construire : pousser un tag suffit, et texte et artifacts viennent du meme
      commit. Pour corriger la page sans pousser un nouveau tag :
-       gh release edit v1.3.1-linux.6 --repo dmos42/VoLum --notes-file \
+       gh release edit v1.3.1-linux.7 --repo dmos42/VoLum --notes-file \
            NeuralAmpModeler/linux/packaging/release-notes.md
      Les nombres cites viennent de test/meter-motion-test.bash, du probe, et du job lui-meme. -->
 
 VoLum 1.3.1 for Linux, x86_64: the VST3 a DAW loads, the LV2 and CLAP the other hosts load,
 and a stand-alone that needs no DAW at all.
-Same amp as [v1.3.1-linux.5](https://github.com/dmos42/VoLum/releases/tag/v1.3.1-linux.5) —
-same 249 bundled captures, no audio code changed since — and what this one adds is the
-shapes the amp can arrive in: the same four files a distribution package manager wants
-(a `/usr` tarball and two RPMs beside the AppImage), and a teardown that no longer trips
-itself up on exit.
+Same amp as [v1.3.1-linux.6](https://github.com/dmos42/VoLum/releases/tag/v1.3.1-linux.6) —
+same 249 bundled captures, no audio code changed since — and what this one fixes is the
+launch: a machine whose capture side answers nothing (no microphone exposed to ALSA, the
+desktop holding the card) used to stop the stand-alone before its window opened, which from
+a file manager read as "the AppImage does nothing". It now starts on silence, says why, and
+the settings panel is where an input gets picked.
 
 ## What is on this page, and who made it
 
@@ -95,6 +96,13 @@ and reports "no seq driver" rather than failing on a runner that has no MIDI.
 anything on Linux. The box the platform draws itself now opens as its own editor window,
 refuses a press off the buttons, and answers through the completion handler — checked
 headless on Xvfb.
+
+**The launch survives a missing input.** Until this release, a capture device that refused
+to open at startup (`default` with no microphone the server exposes is the common case)
+exited the stand-alone with its reason on a terminal the double-click never showed. The
+first negotiation now falls back to silence — the same state `--no-in` asks for — prints the
+reason and where to pick an input, and opens the window. A device changed later in the
+settings panel keeps the other contract: one that refuses gives the previous settings back.
 
 ## If an AppImage is not the shape you want
 
