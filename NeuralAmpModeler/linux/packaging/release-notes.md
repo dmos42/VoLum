@@ -1,20 +1,20 @@
-<!-- Le texte de cette page (https://github.com/dmos42/VoLum/releases/tag/v1.3.1-linux.7) .
+<!-- Le texte de cette page (https://github.com/dmos42/VoLum/releases/tag/v1.3.1-linux.8) .
      Le job `Linux AppImage` (.github/workflows/linux-appimage.yml) cree la page a partir de
      ce fichier quand un tag `v*-linux*` n'a pas encore de release, puis y depose les fichiers
      qu'il vient de construire : pousser un tag suffit, et texte et artifacts viennent du meme
      commit. Pour corriger la page sans pousser un nouveau tag :
-       gh release edit v1.3.1-linux.7 --repo dmos42/VoLum --notes-file \
+       gh release edit v1.3.1-linux.8 --repo dmos42/VoLum --notes-file \
            NeuralAmpModeler/linux/packaging/release-notes.md
      Les nombres cites viennent de test/meter-motion-test.bash, du probe, et du job lui-meme. -->
 
 VoLum 1.3.1 for Linux, x86_64: the VST3 a DAW loads, the LV2 and CLAP the other hosts load,
 and a stand-alone that needs no DAW at all.
-Same amp as [v1.3.1-linux.6](https://github.com/dmos42/VoLum/releases/tag/v1.3.1-linux.6) —
-same 249 bundled captures, no audio code changed since — and what this one fixes is the
-launch: a machine whose capture side answers nothing (no microphone exposed to ALSA, the
-desktop holding the card) used to stop the stand-alone before its window opened, which from
-a file manager read as "the AppImage does nothing". It now starts on silence, says why, and
-the settings panel is where an input gets picked.
+Same amp as [v1.3.1-linux.7](https://github.com/dmos42/VoLum/releases/tag/v1.3.1-linux.7) —
+same 249 bundled captures, no audio path changed since — and what this one fixes is what a
+line-by-line review of the port's own code turned up: a level meter one caller away from
+reading past a host's buffers, command-line values that could not be negative, and float32
+WAV files in the extensible form — what ffmpeg and most Windows tools emit — decoding as
+integers and coming out saturated. Details under "What the code review fixed" below.
 
 ## What is on this page, and who made it
 
@@ -103,6 +103,34 @@ exited the stand-alone with its reason on a terminal the double-click never show
 first negotiation now falls back to silence — the same state `--no-in` asks for — prints the
 reason and where to pick an input, and opens the window. A device changed later in the
 settings panel keeps the other contract: one that refuses gives the previous settings back.
+
+## What the code review fixed
+
+A pass over every file the Linux port owns (hosts, wrappers, packaging) read each one
+against how it is actually called. Three bugs came out of it, all fixed here:
+
+- **The engine's meter read the setup's block size, not the frames processed.**
+  `Engine::meter()` walked `blockFrames` — the maximum fixed at setup — instead of the
+  frames the last `process()` ran. The wrappers chunk a host's buffers with a smaller
+  final chunk and point the engine straight at the host's memory, so any meter pass after
+  a chunked block reads past the host's allocation. Latent today — only the stand-alone
+  meters, and it always runs full blocks — but one future caller away from a crash in a
+  DAW. The meter now reads exactly what the last block processed ([#23](https://github.com/dmos42/VoLum/issues/23)).
+- **A negative value was unreadable.** `--gain -3` failed with "attend une valeur": any
+  next argument starting with `-` was taken for a flag. A `-` followed by a digit or a dot
+  is a number now, for every value-taking option ([#24](https://github.com/dmos42/VoLum/issues/24)).
+- **Float32 extensible WAV files decoded as integers.** The reader took its float path
+  only on fmt tag 3; a `WAVE_FORMAT_EXTENSIBLE` file (tag `0xFFFE`) fell through to the
+  int32 path and every sample came out massively distorted. The real tag is read from the
+  SubFormat GUID now, so ffmpeg-written float32 files play as they sound
+  ([#25](https://github.com/dmos42/VoLum/issues/25)).
+
+Each fix carries its own CI check: the tone is rendered as plain float and extensible float
+and the established audio must be byte-identical; `--check` is driven with `--gain -3`; and
+the meter's contract is what the ASan job runs under. The review's remaining findings are
+tracked, not fixed here: arch assumptions in the module lookup and the RPM spec
+([#26](https://github.com/dmos42/VoLum/issues/26)) and small tool-layer robustness gaps
+([#27](https://github.com/dmos42/VoLum/issues/27)).
 
 ## If an AppImage is not the shape you want
 
