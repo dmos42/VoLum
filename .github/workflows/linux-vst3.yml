@@ -338,7 +338,7 @@ jobs:
         # the negotiation, so this needs no display and no real input device.
         run: |
           code=0
-          out="$(./build/linux/volum-app --check --no-ui --in-device volum-inexistant 2>&1)" || code=$?
+          out="$(./build/linux/volum-app --check --no-ui --in volum-inexistant 2>&1)" || code=$?
           printf '%s\n' "$out"
           [ "$code" -eq 0 ] || { echo "l'entree refusee a tue le standalone (code $code)"; exit 1; }
           printf '%s\n' "$out" | grep -q 'capture indisponible' || { echo 'le repli silence n a pas ete annonce'; exit 1; }
