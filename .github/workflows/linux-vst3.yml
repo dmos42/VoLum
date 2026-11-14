@@ -329,6 +329,21 @@ jobs:
           PY
         shell: bash
 
+      - name: The standalone survives an input device that refuses
+        # A machine whose capture side answers nothing (no mic exposed to ALSA, the
+        # desktop holding the card) used to kill the standalone in openAudio before
+        # its window opened - from a file manager, that reads as "the AppImage does
+        # nothing". Startup now falls back to silence and says so; a settings-panel
+        # reopen still reverts to the previous settings instead. --check exits after
+        # the negotiation, so this needs no display and no real input device.
+        run: |
+          code=0
+          out="$(./build/linux/volum-app --check --no-ui --in-device volum-inexistant 2>&1)" || code=$?
+          printf '%s\n' "$out"
+          [ "$code" -eq 0 ] || { echo "l'entree refusee a tue le standalone (code $code)"; exit 1; }
+          printf '%s\n' "$out" | grep -q 'capture indisponible' || { echo 'le repli silence n a pas ete annonce'; exit 1; }
+        shell: bash
+
       - name: Open the standalone window
         # Closing this window is how the program is meant to end, so the run is left without
         # --no-ui under Xvfb and the host has to report the plug-in's window as embedded.

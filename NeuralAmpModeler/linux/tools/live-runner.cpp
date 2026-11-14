@@ -142,7 +142,7 @@ bool fillFromFile(FileSource& src, unsigned int frames, const std::vector<Sample
   return src.pos * planar < fileIn.size();
 }
 
-int openAudio(const Options& opt, Loaded& plugin, Session& session, std::string& err)
+int openAudio(const Options& opt, Loaded& plugin, Session& session, std::string& err, bool startup)
 {
   session.fromFile = !opt.inFile.empty();
   // A WAV input feeds the card as soon as an output device was asked for; with only
@@ -174,7 +174,17 @@ int openAudio(const Options& opt, Loaded& plugin, Session& session, std::string&
     {
       if (!openStream(
             session.cap, opt.inDevice, SND_PCM_STREAM_CAPTURE, plugin.inChannels, rate, opt.period, opt.periods, err))
-        return 4;
+      {
+        if (!startup)
+          return 4;
+        // openStream closed and reset the stream, so the rest of this function
+        // sees exactly what --no-in sees. Say why, and where to pick an input.
+        fprintf(stderr, "%s\n", err.c_str());
+        fprintf(stderr,
+          "entree  : capture indisponible, le plugin recevra du silence - "
+          "choisis l'entree dans le panneau de reglages, ou --no-in pour taire cet avertissement\n");
+        err.clear();
+      }
     }
     else if (session.fromFile)
       printf("entree  : \"%s\" lu en direct, aucune carte d'ouverte\n", opt.inFile.c_str());
@@ -506,7 +516,7 @@ int runHost(const Options& opt, const char* windowTitle, const char* toolName)
   Session session;
   std::string err;
 
-  if ((exitCode = openAudio(opt, plugin, session, err)) != 0)
+  if ((exitCode = openAudio(opt, plugin, session, err, true)) != 0)
   {
     if (!err.empty())
       fprintf(stderr, "%s\n", err.c_str());

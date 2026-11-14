@@ -79,7 +79,11 @@ struct Session
  * set the plug-up at the rate and block size that came out. Returns 0 with the session
  * ready to run, or the exit code the caller should leave with: 2 an unreadable WAV,
  * 4 a device that could not be used, 5 the plug-in refused the setup. */
-int openAudio(const Options& opt, Loaded& plugin, Session& session, std::string& err);
+// `startup` distinguishes the first negotiation from a settings-panel reopen: at
+// startup a capture device that refuses leaves the run alive on silence (an app
+// that dies before its window opens reads as "the AppImage does nothing" from a
+// file manager), while a reopen keeps the revert-to-previous-settings contract.
+int openAudio(const Options& opt, Loaded& plugin, Session& session, std::string& err, bool startup = false);
 
 /** Close both streams. Safe to call on a session that never got as far as opening one. */
 void closeAudio(Session& session);
