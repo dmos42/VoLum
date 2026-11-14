@@ -204,7 +204,13 @@ struct Engine
 
   void meter()
   {
-    for (unsigned int i = 0; i < blockFrames; ++i)
+    // Only the frames the last process() actually ran: a caller may process fewer
+    // than blockFrames (a wrapper's final chunk, a flush's zero), and the pointers
+    // only ever cover what process() saw. Reading blockFrames here reads past the
+    // end of a host-sized buffer.
+    const unsigned int frames = data.numSamples > 0 ? unsigned(data.numSamples) : 0u;
+
+    for (unsigned int i = 0; i < frames; ++i)
     {
       const double a = std::abs(inPtr.empty() ? 0.0 : inPtr[0][i]);
       const double b = std::abs(outPtr.empty() ? 0.0 : outPtr[0][i]);
