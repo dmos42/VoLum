@@ -414,21 +414,28 @@ struct WrapperEngine
 
   /** The plug-in's full state, the bytes a VST3 host writes into a session:
    *  parameters, the rig reference, the per-amp settings, the bypass flag.
-   *  The single-component module answers getState on the controller, which is
-   *  the same object as the component. */
+   *
+   *  The state travels on the IComponent slots, not the controller's. The VST3
+   *  SDK renames IEditController's state methods to setEditorState/getEditorState
+   *  while it includes those headers (vstsinglecomponenteffect.h works around the
+   *  IComponent/IEditController name clash that way), so on an iPlug2
+   *  single-component module the controller's own getState is an empty
+   *  "nothing to do here" that answers kResultOk and writes zero bytes - the
+   *  trap this check's first run fell into. The component's slots carry the
+   *  real chunk, which is what a host saves and restores. */
   bool saveState(std::vector<uint8_t>& out)
   {
     out.clear();
 
-    if (!loaded.controller)
+    if (!loaded.component)
     {
-      fprintf(stderr, "saveState : pas de controller\n");
+      fprintf(stderr, "saveState : pas de composant\n");
       return false;
     }
 
     MemIBStream stream;
 
-    const sdk::tresult got = loaded.controller->getState(&stream);
+    const sdk::tresult got = loaded.component->getState(&stream);
 
     if (got != sdk::kResultOk)
     {
@@ -442,14 +449,15 @@ struct WrapperEngine
 
   /** Put a saved state back: the same call a VST3 host makes on a session
    *  reload, so the wrapper restores exactly what a DAW would. The rig the
-   *  state names is re-staged by the plug-in's own idle timer, like at open. */
+   *  state names is re-staged by the plug-in's own idle timer, like at open.
+   *  The component's setState, like its getState - see saveState. */
   bool loadState(const void* data, size_t size)
   {
-    if (!loaded.controller || !data || size == 0)
+    if (!loaded.component || !data || size == 0)
       return false;
 
     MemIBStream stream(data, size);
-    return loaded.controller->setState(&stream) == sdk::kResultOk;
+    return loaded.component->setState(&stream) == sdk::kResultOk;
   }
 };
 
