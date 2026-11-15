@@ -1287,6 +1287,7 @@ void NeuralAmpModeler::OnIdle()
 
 bool NeuralAmpModeler::SerializeState(IByteChunk& chunk) const
 {
+  VOLUM_LOG("state", "SerializeState: enter");
   const_cast<NeuralAmpModeler*>(this)->_VolumApplyPendingModeChanges();
 
   // Flush current live params into the active per-amp scene before serializing.
@@ -1423,6 +1424,8 @@ bool NeuralAmpModeler::SerializeState(IByteChunk& chunk) const
   idTail.customScenes = mVolumCustomScenes;
   volum::PutChunkIdTail(chunk, idTail);
 
+  VOLUM_LOG("state", "SerializeState: return ok=" + std::string(ok ? "true" : "false")
+    + " bytes=" + std::to_string(chunk.Size()));
   return ok;
 }
 

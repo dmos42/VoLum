@@ -156,8 +156,18 @@ jobs:
         # The plug-in job runs the same check without rigs; between them the check
         # is proven both mute and loaded.
         run: |
+          code=0
           ./build/linux/volum-wrapper-check \
-            build/linux/VoLum.lv2/volum-lv2.so build/linux/VoLum.clap
+            build/linux/VoLum.lv2/volum-lv2.so build/linux/VoLum.clap || code=$?
+          # The plug-in's own diagnostic log: the state path logs there, so a
+          # failed round-trip carries its reason instead of a bare exit code.
+          for log in "$HOME/.config/VoLum/volum.log" "$HOME/.config/VoLum/volum.log.1"; do
+            if [ -f "$log" ]; then
+              echo "--- $log ---"
+              cat "$log"
+            fi
+          done
+          [ "$code" -eq 0 ] || exit "$code"
         shell: bash
 
       - name: Package with the recipe

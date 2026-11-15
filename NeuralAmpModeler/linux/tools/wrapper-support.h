@@ -29,6 +29,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdio>
 #include <dlfcn.h>
 #include <filesystem>
 #include <cstdlib>
@@ -420,12 +421,20 @@ struct WrapperEngine
     out.clear();
 
     if (!loaded.controller)
+    {
+      fprintf(stderr, "saveState : pas de controller\n");
       return false;
+    }
 
     MemIBStream stream;
 
-    if (loaded.controller->getState(&stream) != sdk::kResultOk)
+    const sdk::tresult got = loaded.controller->getState(&stream);
+
+    if (got != sdk::kResultOk)
+    {
+      fprintf(stderr, "saveState : getState a renvoye 0x%x, %zu octets\n", unsigned(got), stream.bytes.size());
       return false;
+    }
 
     out = std::move(stream.bytes);
     return true;
