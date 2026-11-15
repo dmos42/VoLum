@@ -21,6 +21,10 @@
 #include "engine-support.h"
 #include "host-support.h"
 
+// The state streams are IBStream implementations, and the VST3 interfaces only
+// forward-declare it.
+#include "pluginterfaces/base/ibstream.h"
+
 #include "public.sdk/source/vst/hosting/parameterchanges.h"
 
 #include <algorithm>
