@@ -23,6 +23,7 @@
 
 #include "public.sdk/source/vst/hosting/parameterchanges.h"
 
+#include <algorithm>
 #include <cctype>
 #include <dlfcn.h>
 #include <filesystem>
@@ -41,6 +42,120 @@ namespace volumlinux
 constexpr const char* kPluginName = "VoLum";
 constexpr const char* kPluginUri = "https://github.com/guitarlum/VoLum";
 constexpr const char* kPluginVersion = "1.3.1";
+
+/** The one property the LV2 state carries: the plug-in's whole state as an
+ *  atom:Chunk, the bytes a VST3 host writes into a session. The wrapper and
+ *  the check tool map this same URI, so their URIDs cannot drift apart. */
+const std::string kStatePropertyUri = std::string(kPluginUri) + "#state";
+
+// MARK: the state, the bytes a session carries
+
+/** An IBStream over memory: what getState/setState read and write, so a wrapper
+ *  can carry the plug-in's state without a file. The refcount is the same
+ *  formal 1 the host objects keep - the stream lives on the caller's stack. */
+class MemIBStream : public sdk::IBStream
+{
+public:
+  std::vector<uint8_t> bytes;
+  size_t position = 0;
+
+  MemIBStream() = default;
+
+  explicit MemIBStream(const void* data, size_t size)
+    : bytes(static_cast<const uint8_t*>(data), static_cast<const uint8_t*>(data) + size)
+  {
+  }
+
+  sdk::tresult PLUGIN_API queryInterface(const Steinberg::TUID iid, void** obj) override
+  {
+    if (!obj)
+      return sdk::kInvalidArgument;
+
+    *obj = nullptr;
+
+    if (sdk::FUnknownPrivate::iidEqual(iid, sdk::IBStream::iid)
+        || sdk::FUnknownPrivate::iidEqual(iid, sdk::FUnknown::iid))
+      *obj = static_cast<sdk::IBStream*>(this);
+
+    return *obj ? sdk::kResultOk : sdk::kNoInterface;
+  }
+
+  sdk::uint32 PLUGIN_API addRef() override { return 1; }
+  sdk::uint32 PLUGIN_API release() override { return 1; }
+
+  sdk::tresult PLUGIN_API read(void* buffer, sdk::int32 numBytes, sdk::int32* numBytesRead) override
+  {
+    if (numBytesRead)
+      *numBytesRead = 0;
+
+    if (!buffer || numBytes < 0)
+      return sdk::kInvalidArgument;
+
+    const size_t left = bytes.size() > position ? bytes.size() - position : 0;
+    const size_t n = std::min<size_t>(size_t(numBytes), left);
+    std::memcpy(buffer, bytes.data() + position, n);
+    position += n;
+
+    if (numBytesRead)
+      *numBytesRead = sdk::int32(n);
+
+    // At end of stream: zero bytes read, still kResultTrue - the state reader
+    // loops until a read comes back empty, and an error there would lie.
+    return sdk::kResultTrue;
+  }
+
+  sdk::tresult PLUGIN_API write(void* buffer, sdk::int32 numBytes, sdk::int32* numBytesWritten) override
+  {
+    if (numBytesWritten)
+      *numBytesWritten = 0;
+
+    if (!buffer || numBytes < 0)
+      return sdk::kInvalidArgument;
+
+    if (position + size_t(numBytes) > bytes.size())
+      bytes.resize(position + size_t(numBytes));
+
+    std::memcpy(bytes.data() + position, buffer, size_t(numBytes));
+    position += size_t(numBytes);
+
+    if (numBytesWritten)
+      *numBytesWritten = numBytes;
+
+    return sdk::kResultTrue;
+  }
+
+  sdk::tresult PLUGIN_API seek(sdk::int64 pos, sdk::int32 mode, sdk::int64* result) override
+  {
+    sdk::int64 target = 0;
+
+    switch (mode)
+    {
+      case sdk::IBStream::kIBSeekSet: target = pos; break;
+      case sdk::IBStream::kIBSeekCur: target = sdk::int64(position) + pos; break;
+      case sdk::IBStream::kIBSeekEnd: target = sdk::int64(bytes.size()) + pos; break;
+      default: return sdk::kInvalidArgument;
+    }
+
+    if (target < 0)
+      return sdk::kInvalidArgument;
+
+    position = size_t(target);
+
+    if (result)
+      *result = target;
+
+    return sdk::kResultTrue;
+  }
+
+  sdk::tresult PLUGIN_API tell(sdk::int64* pos) override
+  {
+    if (!pos)
+      return sdk::kInvalidArgument;
+
+    *pos = sdk::int64(position);
+    return sdk::kResultTrue;
+  }
+};
 
 // MARK: finding the module the wrapper drives
 
@@ -269,6 +384,38 @@ struct WrapperEngine
     const bool ok = eng.process();
     paramChanges.clearQueue();
     return ok;
+  }
+
+  /** The plug-in's full state, the bytes a VST3 host writes into a session:
+   *  parameters, the rig reference, the per-amp settings, the bypass flag.
+   *  The single-component module answers getState on the controller, which is
+   *  the same object as the component. */
+  bool saveState(std::vector<uint8_t>& out)
+  {
+    out.clear();
+
+    if (!loaded.controller)
+      return false;
+
+    MemIBStream stream;
+
+    if (loaded.controller->getState(&stream) != sdk::kResultOk)
+      return false;
+
+    out = std::move(stream.bytes);
+    return true;
+  }
+
+  /** Put a saved state back: the same call a VST3 host makes on a session
+   *  reload, so the wrapper restores exactly what a DAW would. The rig the
+   *  state names is re-staged by the plug-in's own idle timer, like at open. */
+  bool loadState(const void* data, size_t size)
+  {
+    if (!loaded.controller || !data || size == 0)
+      return false;
+
+    MemIBStream stream(data, size);
+    return loaded.controller->setState(&stream) == sdk::kResultOk;
   }
 };
 

@@ -13,7 +13,7 @@
  everywhere, like the LV2 control ports.
 
  Not here: the GUI (CLAP has no GUI on Linux in iPlug2's tree, issue #12's
- platform question) and state save/restore.
+ platform question).
 
  ==============================================================================
 */
@@ -21,6 +21,7 @@
 #include "wrapper-support.h"
 
 #include "clap/clap.h"
+#include "clap/ext/state.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -287,6 +288,73 @@ void clapParamFlush(const clap_plugin* plugin, const clap_input_events_t* in, co
   self->engine.process(0);
 }
 
+// MARK: the state (issue #15)
+
+/** The whole state as one byte stream - the same bytes a VST3 host writes into
+ *  a session, so a CLAP session and a VST3 session carry the same thing. */
+int64_t clapStateWrite(const clap_ostream* stream, const void* buffer, uint64_t size)
+{
+  auto* out = static_cast<std::vector<uint8_t>*>(stream->ctx);
+  const auto* p = static_cast<const uint8_t*>(buffer);
+  out->insert(out->end(), p, p + size);
+  return int64_t(size);
+}
+
+bool clapStateSave(const clap_plugin* plugin, const clap_ostream* stream)
+{
+  auto* self = selfOf(plugin);
+
+  if (!self || !stream || !stream->write)
+    return false;
+
+  std::vector<uint8_t> state;
+
+  if (!self->engine.saveState(state))
+    return false;
+
+  return stream->write(stream, state.data(), state.size()) == int64_t(state.size());
+}
+
+int64_t clapStateRead(const clap_istream* stream, void* buffer, uint64_t size)
+{
+  auto* ctx = static_cast<MemIBStream*>(stream->ctx);
+  sdk::int32 got = 0;
+  const sdk::int32 want = size > uint64_t(INT32_MAX) ? INT32_MAX : sdk::int32(size);
+  ctx->read(buffer, want, &got);
+  return int64_t(got); // 0 at end of file, the contract clap_istream documents
+}
+
+bool clapStateLoad(const clap_plugin* plugin, const clap_istream* stream)
+{
+  auto* self = selfOf(plugin);
+
+  if (!self || !stream || !stream->read)
+    return false;
+
+  MemIBStream state;
+  uint8_t buf[4096];
+
+  for (;;)
+  {
+    const int64_t got = stream->read(stream, buf, sizeof(buf));
+
+    if (got < 0)
+      return false;
+
+    if (got == 0)
+      break;
+
+    state.bytes.insert(state.bytes.end(), buf, buf + got);
+  }
+
+  if (state.bytes.empty())
+    return false;
+
+  return self->engine.loadState(state.bytes.data(), state.bytes.size());
+}
+
+clap_plugin_state_t gStateExt = {clapStateSave, clapStateLoad};
+
 uint32_t clapAudioPortCount(const clap_plugin*, bool isInput)
 {
   (void)isInput;
@@ -318,6 +386,9 @@ const void* clapGetExtension(const clap_plugin*, const char* id)
 
   if (std::strcmp(id, CLAP_EXT_AUDIO_PORTS) == 0)
     return &gAudioPortsExt;
+
+  if (std::strcmp(id, CLAP_EXT_STATE) == 0)
+    return &gStateExt;
 
   return nullptr;
 }

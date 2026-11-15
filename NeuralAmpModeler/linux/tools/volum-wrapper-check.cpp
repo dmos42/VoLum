@@ -13,6 +13,11 @@
  surface. It also pins the parameter count the issue quotes (233), so a
  parameter added upstream is a visible change here, not a silent port drift.
 
+ The state round-trip (issue #15) is the session-reload story, once per
+ surface: run the session, save the state, destroy the instance, create a new
+ one, load the state back - and the reloaded instance must render the saved
+ session's audio, not the default rig's.
+
  Order matters: each surface is opened once, then left alone for a moment
  before any audio moves. VoLum stages its amp model from the 20 ms idle timer -
  wall-clock, not block-clock - and a run that starts the instant the plug-in is
@@ -134,7 +139,7 @@ std::vector<float> runDirect(WrapperEngine& we, const std::vector<float>& tone, 
 
 // MARK: the LV2 surface
 
-/** The three URIDs the wrapper asks the host's map for, answered from a fixed
+/** The four URIDs the wrapper asks the host's map for, answered from a fixed
  *  table - a real host numbers them its own way, the wrapper only compares. */
 LV2_URID lv2MapUrid(void*, const char* uri)
 {
@@ -146,6 +151,9 @@ LV2_URID lv2MapUrid(void*, const char* uri)
 
   if (std::strcmp(uri, LV2_MIDI__MidiEvent) == 0)
     return 3;
+
+  if (uri && std::strcmp(uri, kStatePropertyUri.c_str()) == 0)
+    return 4;
 
   return 0;
 }
@@ -406,6 +414,60 @@ std::vector<float> runClapPass(const clap_plugin_t* plugin, const std::vector<fl
   return out;
 }
 
+// MARK: the state round-trip (issue #15)
+
+/** The host side of an LV2 state save: one property, the whole state. */
+LV2_State_Status lv2CheckStore(LV2_State_Handle handle, uint32_t, const void* value, size_t size, uint32_t, uint32_t)
+{
+  auto* bytes = static_cast<std::vector<uint8_t>*>(handle);
+  const auto* p = static_cast<const uint8_t*>(value);
+  bytes->assign(p, p + size);
+  return LV2_STATE_SUCCESS;
+}
+
+/** The host side of an LV2 state restore: the bytes a save stored. */
+const void* lv2CheckRetrieve(LV2_State_Handle handle, uint32_t, size_t* size, uint32_t* type, uint32_t* flags)
+{
+  auto* bytes = static_cast<std::vector<uint8_t>*>(handle);
+
+  if (bytes->empty())
+    return nullptr;
+
+  if (size)
+    *size = bytes->size();
+
+  if (type)
+    *type = 2; // the check map's answer for atom:Chunk
+
+  if (flags)
+    *flags = LV2_STATE_IS_POD | LV2_STATE_IS_PORTABLE;
+
+  return bytes->data();
+}
+
+int64_t clapCheckWrite(const clap_ostream* stream, const void* buffer, uint64_t size)
+{
+  auto* bytes = static_cast<std::vector<uint8_t>*>(stream->ctx);
+  const auto* p = static_cast<const uint8_t*>(buffer);
+  bytes->insert(bytes->end(), p, p + size);
+  return int64_t(size);
+}
+
+int64_t clapCheckRead(const clap_istream* stream, void* buffer, uint64_t size)
+{
+  auto* ctx = static_cast<MemIBStream*>(stream->ctx);
+  sdk::int32 got = 0;
+  const sdk::int32 want = size > uint64_t(INT32_MAX) ? INT32_MAX : sdk::int32(size);
+  ctx->read(buffer, want, &got);
+  return int64_t(got);
+}
+
+/** The LV2 state interface of an already-loaded module. */
+const LV2_State_Interface* lv2StateOf(const Lv2Api& api)
+{
+  return static_cast<const LV2_State_Interface*>(api.desc->extension_data(LV2_STATE__interface));
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -585,6 +647,245 @@ int main(int argc, char** argv)
   const std::string clapHashB = sha256(clapB);
   printf("CLAP           : defaut %.16s, %s=%.2f %.16s\n", clapHashA.c_str(),
          direct.params[kCheckParamIndex].name.c_str(), kCheckParamValue, clapHashB.c_str());
+
+  // MARK: the state round-trip (issue #15)
+  // A session reload is: run the session, save the state, destroy the instance,
+  // create a new one, load the state back. Each surface does exactly that here,
+  // through its own state plumbing, and the reloaded instance must render the
+  // saved session's audio - the check parameter's value rides in the state, so
+  // the reloaded hash is the saved pass's, not the default's. Without a rig the
+  // render is silence and the equality is trivial; with rigs (the AppImage job)
+  // it is the real assertion: the rig the state names is the rig that plays.
+
+  std::vector<uint8_t> savedState;
+  {
+    WrapperEngine session;
+
+    if (session.open(double(kRate), kMaxBlockFrames, err) != kLoadOk)
+    {
+      fprintf(stderr, "volum-wrapper-check : moteur direct (etat) - %s\n", err.c_str());
+      return 2;
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(kSettleMs));
+    const std::vector<float> saved = runDirect(session, tone, kCheckParamValue);
+
+    if (!session.saveState(savedState) || savedState.empty())
+    {
+      fprintf(stderr, "volum-wrapper-check : saveState du moteur direct a echoue\n");
+      return 3;
+    }
+
+    session.close();
+
+    WrapperEngine reloaded;
+
+    if (reloaded.open(double(kRate), kMaxBlockFrames, err) != kLoadOk)
+    {
+      fprintf(stderr, "volum-wrapper-check : moteur direct (recharge) - %s\n", err.c_str());
+      return 2;
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(kSettleMs));
+
+    if (!reloaded.loadState(savedState.data(), savedState.size()))
+    {
+      fprintf(stderr, "volum-wrapper-check : loadState du moteur direct a refuse l'etat sauvegarde\n");
+      return 3;
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(kSettleMs));
+    const std::vector<float> restored = runDirect(reloaded, tone, -1.0);
+    reloaded.close();
+
+    if (restored.empty() || sha256(restored) != sha256(saved))
+    {
+      fprintf(stderr, "volum-wrapper-check : l'etat recharge du moteur direct ne rend pas l'audio sauvegarde\n");
+      return 3;
+    }
+
+    printf("etat direct     : %zu octets, recharge, meme audio\n", savedState.size());
+  }
+
+  {
+    Lv2Api lv2s;
+
+    if (!loadLv2(lv2Path, lv2s, err))
+    {
+      fprintf(stderr, "volum-wrapper-check : LV2 (etat) - %s\n", err.c_str());
+      return 2;
+    }
+
+    const LV2_State_Interface* stateIf = lv2StateOf(lv2s);
+
+    if (!stateIf)
+    {
+      fprintf(stderr, "volum-wrapper-check : LV2 n'expose pas state:interface\n");
+      return 3;
+    }
+
+    LV2_Handle savedHandle = lv2s.desc->instantiate(lv2s.desc, double(kRate), "/tmp", lv2Features);
+
+    if (!savedHandle)
+    {
+      fprintf(stderr, "volum-wrapper-check : LV2 instantiate (etat) a renvoie null\n");
+      return 2;
+    }
+
+    lv2s.desc->activate(savedHandle);
+    std::this_thread::sleep_for(std::chrono::milliseconds(kSettleMs));
+    const std::vector<float> saved = runLv2Pass(lv2s, savedHandle, tone, direct.params, kCheckParamValue);
+
+    std::vector<uint8_t> lv2State;
+
+    if (stateIf->save(savedHandle, lv2CheckStore, &lv2State, 0, nullptr) != LV2_STATE_SUCCESS || lv2State.empty())
+    {
+      fprintf(stderr, "volum-wrapper-check : save LV2 a echoue\n");
+      return 3;
+    }
+
+    lv2s.desc->deactivate(savedHandle);
+    lv2s.desc->cleanup(savedHandle);
+    dlclose(lv2s.lib);
+
+    Lv2Api lv2r;
+
+    if (!loadLv2(lv2Path, lv2r, err))
+    {
+      fprintf(stderr, "volum-wrapper-check : LV2 (recharge) - %s\n", err.c_str());
+      return 2;
+    }
+
+    LV2_Handle restoredHandle = lv2r.desc->instantiate(lv2r.desc, double(kRate), "/tmp", lv2Features);
+
+    if (!restoredHandle)
+    {
+      fprintf(stderr, "volum-wrapper-check : LV2 instantiate (recharge) a renvoie null\n");
+      return 2;
+    }
+
+    lv2r.desc->activate(restoredHandle);
+    std::this_thread::sleep_for(std::chrono::milliseconds(kSettleMs));
+
+    if (lv2StateOf(lv2r)->restore(restoredHandle, lv2CheckRetrieve, &lv2State, 0, nullptr) != LV2_STATE_SUCCESS)
+    {
+      fprintf(stderr, "volum-wrapper-check : restore LV2 a refuse l'etat sauvegarde\n");
+      return 3;
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(kSettleMs));
+    const std::vector<float> restored = runLv2Pass(lv2r, restoredHandle, tone, direct.params, -1.0);
+    lv2r.desc->deactivate(restoredHandle);
+    lv2r.desc->cleanup(restoredHandle);
+    dlclose(lv2r.lib);
+
+    if (restored.empty() || sha256(restored) != sha256(saved))
+    {
+      fprintf(stderr, "volum-wrapper-check : l'etat recharge du LV2 ne rend pas l'audio sauvegarde\n");
+      return 3;
+    }
+
+    printf("etat LV2        : %zu octets, recharge, meme audio\n", lv2State.size());
+  }
+
+  {
+    ClapApi claps;
+
+    if (!loadClap(clapPath, claps, err))
+    {
+      fprintf(stderr, "volum-wrapper-check : CLAP (etat) - %s\n", err.c_str());
+      return 2;
+    }
+
+    const clap_plugin_t* savedPlugin = claps.factory->create_plugin(claps.factory, &gHost, kPluginUri);
+
+    if (!savedPlugin || !savedPlugin->init(savedPlugin)
+        || !savedPlugin->activate(savedPlugin, double(kRate), 64, kMaxBlockFrames)
+        || !savedPlugin->start_processing(savedPlugin))
+    {
+      fprintf(stderr, "volum-wrapper-check : CLAP create/init/activate (etat) a echoue\n");
+      return 2;
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(kSettleMs));
+    const std::vector<float> saved = runClapPass(savedPlugin, tone, direct.params, kCheckParamValue, err);
+
+    auto* stateExt =
+      static_cast<const clap_plugin_state_t*>(savedPlugin->get_extension(savedPlugin, CLAP_EXT_STATE));
+
+    if (!stateExt)
+    {
+      fprintf(stderr, "volum-wrapper-check : CLAP n'expose pas clap.state\n");
+      return 3;
+    }
+
+    std::vector<uint8_t> clapState;
+    clap_ostream ostream = {&clapState, clapCheckWrite};
+
+    if (!stateExt->save(savedPlugin, &ostream) || clapState.empty())
+    {
+      fprintf(stderr, "volum-wrapper-check : save CLAP a echoue\n");
+      return 3;
+    }
+
+    savedPlugin->stop_processing(savedPlugin);
+    savedPlugin->deactivate(savedPlugin);
+    savedPlugin->destroy(savedPlugin);
+    dlclose(claps.lib);
+
+    ClapApi clapr;
+
+    if (!loadClap(clapPath, clapr, err))
+    {
+      fprintf(stderr, "volum-wrapper-check : CLAP (recharge) - %s\n", err.c_str());
+      return 2;
+    }
+
+    const clap_plugin_t* restoredPlugin = clapr.factory->create_plugin(clapr.factory, &gHost, kPluginUri);
+
+    if (!restoredPlugin || !restoredPlugin->init(restoredPlugin)
+        || !restoredPlugin->activate(restoredPlugin, double(kRate), 64, kMaxBlockFrames)
+        || !restoredPlugin->start_processing(restoredPlugin))
+    {
+      fprintf(stderr, "volum-wrapper-check : CLAP create/init/activate (recharge) a echoue\n");
+      return 2;
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(kSettleMs));
+
+    auto* restoredStateExt =
+      static_cast<const clap_plugin_state_t*>(restoredPlugin->get_extension(restoredPlugin, CLAP_EXT_STATE));
+
+    if (!restoredStateExt)
+    {
+      fprintf(stderr, "volum-wrapper-check : CLAP (recharge) n'expose pas clap.state\n");
+      return 3;
+    }
+
+    MemIBStream stateBytes(clapState.data(), clapState.size());
+    clap_istream istream = {&stateBytes, clapCheckRead};
+
+    if (!restoredStateExt->load(restoredPlugin, &istream))
+    {
+      fprintf(stderr, "volum-wrapper-check : load CLAP a refuse l'etat sauvegarde\n");
+      return 3;
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(kSettleMs));
+    const std::vector<float> restored = runClapPass(restoredPlugin, tone, direct.params, -1.0, err);
+    restoredPlugin->stop_processing(restoredPlugin);
+    restoredPlugin->deactivate(restoredPlugin);
+    restoredPlugin->destroy(restoredPlugin);
+    dlclose(clapr.lib);
+
+    if (restored.empty() || sha256(restored) != sha256(saved))
+    {
+      fprintf(stderr, "volum-wrapper-check : l'etat recharge du CLAP ne rend pas l'audio sauvegarde\n");
+      return 3;
+    }
+
+    printf("etat CLAP       : %zu octets, recharge, meme audio\n", clapState.size());
+  }
 
   // MARK: the verdict
   if (getenv("VOLUM_CHECK_DEBUG"))

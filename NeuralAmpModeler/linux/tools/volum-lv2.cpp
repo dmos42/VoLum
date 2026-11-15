@@ -13,9 +13,8 @@
  the atom events as MIDI, and calls the engine's process() - the same call the
  hosts make, so the audio that comes out is the audio the port already tested.
 
- Not here (deliberately, for now): the editor (an LV2 UI is a second shared
- object with its own X11 embedding, issue #12's platform question), and state
- save/restore (lv2:state, the next step once Carla round-trips the audio).
+ Not here (deliberately, for now): the editor - an LV2 UI is a second shared
+ object with its own X11 embedding, issue #12's platform question.
 
  ==============================================================================
 */
@@ -26,6 +25,7 @@
 #include "lv2/atom/util.h"
 #include "lv2/core/lv2.h"
 #include "lv2/midi/midi.h"
+#include "lv2/state/state.h"
 #include "lv2/urid/urid.h"
 
 #include <algorithm>
@@ -58,6 +58,7 @@ struct Lv2Instance
   LV2_URID atomSequence = 0;
   LV2_URID atomChunk = 0;
   LV2_URID midiEvent = 0;
+  LV2_URID stateProperty = 0; // the one property the state carries: the whole state as an atom:Chunk
   bool haveUridMap = false;
 };
 
@@ -103,6 +104,7 @@ LV2_Handle lv2Instantiate(const LV2_Descriptor*, double rate, const char*, const
       self->atomSequence = mapUrid(map, LV2_ATOM__Sequence);
       self->atomChunk = mapUrid(map, LV2_ATOM__Chunk);
       self->midiEvent = mapUrid(map, LV2_MIDI__MidiEvent);
+      self->stateProperty = mapUrid(map, kStatePropertyUri.c_str());
       self->haveUridMap = self->atomSequence && self->midiEvent;
     }
   }
@@ -182,6 +184,59 @@ void lv2Run(LV2_Handle handle, uint32_t nframes)
 
 void lv2Deactivate(LV2_Handle) {}
 
+// MARK: the state (issue #15)
+
+/** The whole state as one atom:Chunk property - the bytes a VST3 host writes
+ *  into a session, so an LV2 session and a VST3 session carry the same thing. */
+LV2_State_Status lv2Save(LV2_Handle handle, LV2_State_Store_Function store, LV2_State_Handle h,
+                         uint32_t flags, const LV2_Feature* const* features)
+{
+  (void)flags;
+  (void)features;
+
+  auto* self = static_cast<Lv2Instance*>(handle);
+
+  if (!self || !store || !self->stateProperty || !self->atomChunk)
+    return LV2_STATE_ERR_UNKNOWN;
+
+  std::vector<uint8_t> state;
+
+  if (!self->engine.saveState(state))
+    return LV2_STATE_ERR_UNKNOWN;
+
+  store(h, self->stateProperty, state.data(), state.size(), self->atomChunk,
+        LV2_STATE_IS_POD | LV2_STATE_IS_PORTABLE);
+  return LV2_STATE_SUCCESS;
+}
+
+/** Nothing stored (a host resetting with an empty map) is not an error: the
+ *  plug-in stays where its defaults put it. */
+LV2_State_Status lv2Restore(LV2_Handle handle, LV2_State_Retrieve_Function retrieve, LV2_State_Handle h,
+                            uint32_t flags, const LV2_Feature* const* features)
+{
+  (void)flags;
+  (void)features;
+
+  auto* self = static_cast<Lv2Instance*>(handle);
+
+  if (!self || !retrieve || !self->stateProperty)
+    return LV2_STATE_ERR_UNKNOWN;
+
+  size_t size = 0;
+  uint32_t type = 0, valueFlags = 0;
+  const void* value = retrieve(h, self->stateProperty, &size, &type, &valueFlags);
+
+  if (!value || size == 0)
+    return LV2_STATE_SUCCESS;
+
+  if (type != self->atomChunk)
+    return LV2_STATE_ERR_BAD_TYPE;
+
+  return self->engine.loadState(value, size) ? LV2_STATE_SUCCESS : LV2_STATE_ERR_UNKNOWN;
+}
+
+LV2_State_Interface gLv2StateInterface = {lv2Save, lv2Restore};
+
 void lv2Cleanup(LV2_Handle handle)
 {
   auto* self = static_cast<Lv2Instance*>(handle);
@@ -193,7 +248,13 @@ void lv2Cleanup(LV2_Handle handle)
   delete self;
 }
 
-const void* lv2ExtensionData(const char*) { return nullptr; }
+const void* lv2ExtensionData(const char* uri)
+{
+  if (uri && std::strcmp(uri, LV2_STATE__interface) == 0)
+    return &gLv2StateInterface;
+
+  return nullptr;
+}
 
 constexpr unsigned int kAudioPorts = 4; // 2 in, 2 out
 constexpr unsigned int kMidiPort = 1;
