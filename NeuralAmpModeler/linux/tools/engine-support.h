@@ -136,6 +136,7 @@ struct Engine
   Steinberg::Vst::EventList events;
   long blocks = 0;
   long processErrors = 0;
+  long midiDropped = 0; // events.addEvent refused: the list was full, counted here so a loss is visible
   double peakIn = 0.0, peakOut = 0.0, sumIn = 0.0, sumOut = 0.0;
   double runPeakIn = 0.0, runPeakOut = 0.0;
   long counted = 0;
@@ -187,7 +188,8 @@ struct Engine
     if (!MidiBytesToEvent(bytes, len, offsetSamples, ev))
       return;
 
-    events.addEvent(ev);
+    if (events.addEvent(ev) != Steinberg::kResultOk)
+      ++midiDropped; // a saturated list used to drop the message silently
   }
 
   bool process()
@@ -208,6 +210,9 @@ struct Engine
     // than blockFrames (a wrapper's final chunk, a flush's zero), and the pointers
     // only ever cover what process() saw. Reading blockFrames here reads past the
     // end of a host-sized buffer.
+    // Channel 0 only, deliberately: reportLevels prints one IN and one OUT
+    // column, and the standalone's own input is mono-folded before this runs -
+    // so a L/R imbalance is invisible here by design (issue #27).
     const unsigned int frames = data.numSamples > 0 ? unsigned(data.numSamples) : 0u;
 
     for (unsigned int i = 0; i < frames; ++i)

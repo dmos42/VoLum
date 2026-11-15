@@ -53,15 +53,22 @@ public:
   /** The client:port pair a sender connects to, once open. */
   std::string portId() const;
 
-  /** Drain every event that arrived, each stamped inside the block now starting:
-   *  an event the sender handed over during the previous block is played at the
-   *  front of this one, not somewhere behind the wall clock. Returns false when
-   *  ALSA itself failed. */
+  /** Drain every event whose time has come, each stamped inside the block now
+   *  starting: an event the sender handed over during the previous block is
+   *  played at the front of this one, and an event scheduled ahead is held
+   *  until the block it asked for, not played early. Returns false when ALSA
+   *  itself failed. */
   bool drain(std::vector<RawMidiEvent>& out, double sampleRate, int blockFrames, std::string& err);
 
 private:
   snd_seq_t* mSeq = nullptr;
   int mPort = -1;
+
+  // Events stamped past the block that read them, with their real-time
+  // deadline: the block where they fall delivers them (issue #27). They only
+  // wait here one drain at a time - a sender scheduling minutes ahead just
+  // keeps them a few blocks, and ALSA's own input buffer bounds the volume.
+  std::vector<std::pair<long long, RawMidiEvent>> mPending;
 };
 
 } // namespace volumlinux

@@ -10,7 +10,9 @@
 
 #include "midi-support.h"
 
+#include <algorithm>
 #include <ctime>
+#include <utility>
 
 namespace volumlinux
 {
@@ -157,6 +159,28 @@ bool MidiIn::drain(std::vector<RawMidiEvent>& out, double sampleRate, int blockF
     return true;
 
   const long long base = nowNs();
+  const long long blockEnd = base + static_cast<long long>(double(blockFrames) / sampleRate * 1e9);
+
+  // What an earlier block held back, now due: stamped where it asked to be,
+  // clamped only into the block that is actually starting.
+  for (size_t i = mPending.size(); i > 0; --i)
+  {
+    if (mPending[i - 1].first > blockEnd)
+      continue;
+
+    long long offset =
+      static_cast<long long>((static_cast<double>(mPending[i - 1].first - base) / 1e9) * sampleRate);
+
+    if (offset < 0)
+      offset = 0;
+
+    if (offset > blockFrames - 1)
+      offset = blockFrames - 1;
+
+    mPending[i - 1].second.offset = static_cast<int>(offset);
+    out.push_back(std::move(mPending[i - 1].second));
+    mPending.erase(mPending.begin() + std::ptrdiff_t(i - 1));
+  }
 
   while (snd_seq_event_input_pending(mSeq, 1) > 0)
   {
@@ -170,20 +194,32 @@ bool MidiIn::drain(std::vector<RawMidiEvent>& out, double sampleRate, int blockF
 
     // The event's own real-time stamp, read against the moment this block starts:
     // something sent while the previous block was still being processed lands at
-    // the front of this one, something scheduled ahead lands where it asked.
+    // the front of this one, something scheduled ahead is held for the block
+    // where it falls instead of being played early at this block's end.
     long long offset = 0;
+    long long deadline = 0;
 
     if (ev->flags & SND_SEQ_TIME_STAMP_REAL)
     {
-      const long long at = static_cast<long long>(ev->time.time.tv_sec) * 1000000000ll + ev->time.time.tv_nsec;
-      offset = static_cast<long long>((static_cast<double>(at - base) / 1e9) * sampleRate);
+      deadline = static_cast<long long>(ev->time.time.tv_sec) * 1000000000ll + ev->time.time.tv_nsec;
+      offset = static_cast<long long>((static_cast<double>(deadline - base) / 1e9) * sampleRate);
     }
 
     if (offset < 0)
       offset = 0;
 
     if (offset > blockFrames - 1)
-      offset = blockFrames - 1;
+    {
+      // Held for a later block. seqEventToBytes may still drop it (clock and
+      // queue bytes are nobody's audio), so it goes through the same decode.
+      std::vector<RawMidiEvent> decoded;
+      seqEventToBytes(*ev, decoded, 0);
+
+      if (!decoded.empty())
+        mPending.emplace_back(deadline, std::move(decoded.front()));
+
+      continue;
+    }
 
     seqEventToBytes(*ev, out, static_cast<int>(offset));
   }

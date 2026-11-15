@@ -76,6 +76,10 @@ void closeStream(Stream& s);
 
 /** Frames read or written, stopping early once stopRequested() is set. Both keep
  * trying through an xrun rather than turning the failure into silence. */
+/** Both return the frames actually moved, which on a stop request mid-block is
+ *  fewer than asked: the callers break on stop right after, so a short count
+ *  is never carried forward - keep that true if the loop ever changes
+ *  (issue #27). A negative return is an ALSA error the caller reports. */
 snd_pcm_sframes_t readFrames(Stream& s, char* raw, unsigned int frames);
 snd_pcm_sframes_t writeFrames(Stream& s, const char* raw, unsigned int frames);
 
