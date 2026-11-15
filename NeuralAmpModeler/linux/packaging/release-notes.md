@@ -1,20 +1,21 @@
-<!-- Le texte de cette page (https://github.com/dmos42/VoLum/releases/tag/v1.3.1-linux.8) .
+<!-- Le texte de cette page (https://github.com/dmos42/VoLum/releases/tag/v1.3.1-linux.9) .
      Le job `Linux AppImage` (.github/workflows/linux-appimage.yml) cree la page a partir de
      ce fichier quand un tag `v*-linux*` n'a pas encore de release, puis y depose les fichiers
      qu'il vient de construire : pousser un tag suffit, et texte et artifacts viennent du meme
      commit. Pour corriger la page sans pousser un nouveau tag :
-       gh release edit v1.3.1-linux.8 --repo dmos42/VoLum --notes-file \
+       gh release edit v1.3.1-linux.9 --repo dmos42/VoLum --notes-file \
            NeuralAmpModeler/linux/packaging/release-notes.md
      Les nombres cites viennent de test/meter-motion-test.bash, du probe, et du job lui-meme. -->
 
 VoLum 1.3.1 for Linux, x86_64: the VST3 a DAW loads, the LV2 and CLAP the other hosts load,
 and a stand-alone that needs no DAW at all.
-Same amp as [v1.3.1-linux.7](https://github.com/dmos42/VoLum/releases/tag/v1.3.1-linux.7) —
-same 249 bundled captures, no audio path changed since — and what this one fixes is what a
-line-by-line review of the port's own code turned up: a level meter one caller away from
-reading past a host's buffers, command-line values that could not be negative, and float32
-WAV files in the extensible form — what ffmpeg and most Windows tools emit — decoding as
-integers and coming out saturated. Details under "What the code review fixed" below.
+Same amp as [v1.3.1-linux.8](https://github.com/dmos42/VoLum/releases/tag/v1.3.1-linux.8) —
+same 249 bundled captures, no audio path changed since — and what this one adds is the piece
+a DAW session cannot do without: **the LV2 and CLAP wrappers save and restore state now**, so
+a session reload brings back the rig, the knobs and the bypass exactly as they were saved —
+the same bytes a VST3 host writes, proven by a save/destroy/reload/render round-trip in CI.
+The arch assumptions flagged in the code review are fixed too, and the small tool-layer
+robustness gaps. Details under "The wrappers save and restore state now" below.
 
 ## What is on this page, and who made it
 
@@ -72,9 +73,15 @@ unzip VoLum-linux-x86_64-1.3.1.clap.zip -d ~/.clap      # -> ~/.clap/VoLum.clap
 
 Then rescan plugins in the host; Carla and Reaper list all three from the same engine.
 
-State save/restore is the wrappers' known gap for now: audio, parameters and MIDI round-trip
-and are proven equal, but a host reloading a session re-loads the default rig rather than the
-one the session saved.
+State save/restore (issue #15): a host saving a session gets one property — the exact bytes a
+VST3 host writes, the plug-in's own chunk — and a session reload restores it: the rig the
+state names is re-staged by the plug-in's own idle timer, the knobs and the bypass come back
+with it. CI proves it the way a DAW does it, once per surface: run the session, save, destroy
+the instance, create a new one, load the state back, render again — and the reloaded render
+must be byte-identical to the saved one, with the 249-rig set on this job. One trap was found
+on the way and is documented in the code: the VST3 SDK renames the controller's state methods
+while it includes its headers, so on a single-component module the state lives on the
+IComponent slots — the controller's own getState answers ok and writes nothing.
 
 ## The stand-alone grew its settings window and a MIDI input
 
@@ -127,10 +134,26 @@ against how it is actually called. Three bugs came out of it, all fixed here:
 
 Each fix carries its own CI check: the tone is rendered as plain float and extensible float
 and the established audio must be byte-identical; `--check` is driven with `--gain -3`; and
-the meter's contract is what the ASan job runs under. The review's remaining findings are
-tracked, not fixed here: arch assumptions in the module lookup and the RPM spec
-([#26](https://github.com/dmos42/VoLum/issues/26)) and small tool-layer robustness gaps
-([#27](https://github.com/dmos42/VoLum/issues/27)).
+the meter's contract is what the ASan job runs under.
+
+## The wrappers save and restore state now
+
+The review's remaining findings are fixed here too:
+
+- **Wrapper state save/restore** ([#15](https://github.com/dmos42/VoLum/issues/15)): the LV2
+  wrapper answers `state:interface` with one `atom:Chunk` property, the CLAP wrapper answers
+  `clap.state`, and both carry the same bytes a VST3 host writes into a session — so a session
+  saved in any of the three formats restores the same rig, knobs and bypass. The round-trip
+  (save, destroy, reload, render, compare) is a CI step on both jobs.
+- **Arch assumptions** ([#26](https://github.com/dmos42/VoLum/issues/26)): the module lookup
+  scans `Contents/*/` instead of assuming `x86_64-linux`, the stand-alone's default module path
+  does the same under `~/.vst3`, and the RPM spec names its source tarball by the target CPU
+  the build actually passes.
+- **Tool-layer robustness** ([#27](https://github.com/dmos42/VoLum/issues/27)): MIDI events
+  stamped past the end of a block wait for the block they belong to instead of playing early,
+  a dropped MIDI event is counted instead of vanishing, the app's config file reads lines of
+  any length, and the meter's channel-0-only scope and the ALSA frame contract are written
+  down where the next reader will see them.
 
 ## If an AppImage is not the shape you want
 
@@ -333,9 +356,6 @@ Each of these is an issue on this repository, and nothing above claims them:
   all, with what key and where that key lives, is the owner's call.
   [#14](https://github.com/dmos42/VoLum/issues/14) Until then the sums file on this page is the
   check, and the job that made the files made it.
-- The wrappers do not save and restore state yet: a session reload re-loads the default rig.
-  Audio, parameters and MIDI are proven equal; the state round-trip is the next wrapper work.
-
 ## Fingerprints
 
 ```bash
