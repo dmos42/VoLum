@@ -19,7 +19,9 @@ Summary:        Neural amp capture player: stand-alone, VST3, LV2 and CLAP plug-
 
 License:        MIT
 URL:            https://github.com/dmos42/VoLum
-Source0:        VoLum-linux-x86_64-%{version}.tar.gz
+# The tarball name follows the arch dist.bash built for (%{_target_cpu}), so the
+# spec and the script cannot drift apart on a rebuild for other hardware.
+Source0:        VoLum-linux-%{_target_cpu}-%{version}.tar.gz
 Source1:        VoLum-rigs-%{version}.tar.gz
 
 ExclusiveArch:  x86_64
@@ -70,4 +72,5 @@ The two hundred and forty-nine .nam captures VoLum ships, from clean Fenders to
 high-gain Marshalls, installed as a system-wide rig collection.
 
 %files rigs
+%dir /usr/share/VoLum
 /usr/share/VoLum/VoLumRigs/

@@ -4,6 +4,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -21,6 +22,30 @@ bool keyWantsValue(const std::string& key)
       return true;
 
   return false;
+}
+
+/** The last-resort default module: ~/.vst3/VoLum.vst3. The arch folder inside
+ *  Contents/ is the build's business, so it is scanned rather than assumed -
+ *  the same rule the standalone's bundle search keeps (app-support.cpp) - and
+ *  the historical x86_64-linux path stays as the fallback when nothing scans. */
+std::string defaultModulePath()
+{
+  namespace fs = std::filesystem;
+
+  const char* home = getenv("HOME");
+  const std::string prefix = (home && home[0]) ? std::string(home) : std::string("~");
+  std::error_code ec;
+
+  for (const fs::directory_entry& entry :
+       fs::directory_iterator(prefix + "/.vst3/VoLum.vst3/Contents", ec))
+  {
+    const fs::path candidate = entry.path() / "VoLum.vst3.so";
+
+    if (fs::is_regular_file(candidate, ec))
+      return candidate.string();
+  }
+
+  return prefix + "/.vst3/VoLum.vst3/Contents/x86_64-linux/VoLum.vst3.so";
 }
 
 /** A value may be negative (--gain -3): a leading '-' is only a flag when another
@@ -165,12 +190,23 @@ bool loadConfigFile(const std::string& path, Options& opt, std::string& err)
   if (!f)
     return true; // no config file is not an error
 
-  char line[512];
+  // A line is read a character at a time, not into a fixed buffer: a long line
+  // used to be truncated, and its tail - carrying no '=' - silently skipped.
+  std::string line;
   int lineNo = 0;
+  int c;
 
-  while (std::fgets(line, sizeof(line), f))
+  while ((c = std::fgetc(f)) != EOF)
   {
     ++lineNo;
+    line.clear();
+
+    while (c != EOF && c != '\n')
+    {
+      line += static_cast<char>(c);
+      c = std::fgetc(f);
+    }
+
     std::string s(line);
 
     const size_t hash = s.find('#');
@@ -281,12 +317,7 @@ bool parseArgs(int argc, char** argv, Options& opt, void (*printUsage)(const cha
   }
 
   if (opt.module.empty())
-  {
-    if (const char* home = getenv("HOME"))
-      opt.module = std::string(home) + "/.vst3/VoLum.vst3/Contents/x86_64-linux/VoLum.vst3.so";
-    else
-      opt.module = "~/.vst3/VoLum.vst3/Contents/x86_64-linux/VoLum.vst3.so";
-  }
+    opt.module = defaultModulePath();
 
   NormalizeOptions(opt);
   return true;

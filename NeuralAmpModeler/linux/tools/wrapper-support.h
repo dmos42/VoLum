@@ -169,8 +169,32 @@ inline std::string locateVst3Module(std::string& tried)
   namespace fs = std::filesystem;
 
   const char* moduleName = "VoLum.vst3.so";
-  auto moduleIn = [](const fs::path& bundle) {
-    return bundle / "Contents" / "x86_64-linux" / "VoLum.vst3.so";
+  // The arch folder inside Contents/ is the build's business (x86_64-linux
+  // today, aarch64-linux on other hardware): scanned, not assumed, the same
+  // rule moduleInBundle (app-support.cpp) keeps for the standalone.
+  auto moduleIn = [&tried, moduleName](const fs::path& bundle, std::string& found) {
+    std::error_code ec;
+    const fs::path contents = bundle / "Contents";
+
+    if (!fs::is_directory(contents, ec))
+      return false;
+
+    for (const fs::directory_entry& entry : fs::directory_iterator(contents, ec))
+    {
+      if (!entry.is_directory(ec))
+        continue;
+
+      const fs::path module = entry.path() / moduleName;
+      tried += " " + module.string();
+
+      if (fs::is_regular_file(module, ec))
+      {
+        found = module.string();
+        return true;
+      }
+    }
+
+    return false;
   };
 
   tried.clear();
@@ -203,13 +227,10 @@ inline std::string locateVst3Module(std::string& tried)
 
   for (const fs::path& bundle : bundles)
   {
-    const fs::path module = moduleIn(bundle);
-    tried += " " + module.string();
+    std::string found;
 
-    std::error_code ec;
-
-    if (fs::exists(module, ec))
-      return module.string();
+    if (moduleIn(bundle, found))
+      return found;
   }
 
   return {};
